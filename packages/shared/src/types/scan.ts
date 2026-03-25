@@ -1,0 +1,191 @@
+import { z } from 'zod';
+import type { AgentId, AgentStatus, AgentResult, AgentConfig } from './agent.js';
+import type { Finding } from './vulnerability.js';
+
+/**
+ * Scan status
+ */
+export type ScanStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
+
+/**
+ * Scan type
+ */
+export type ScanType = 'url' | 'directory' | 'repository';
+
+/**
+ * Scan configuration
+ */
+export interface ScanConfig {
+  /** Target URL or path */
+  target: string;
+  /** Scan type */
+  type: ScanType;
+  /** Agents to run */
+  agents?: AgentId[];
+  /** Agent configurations */
+  agentConfigs?: Partial<Record<AgentId, AgentConfig>>;
+  /** Maximum concurrent agents */
+  maxConcurrency?: number;
+  /** Global timeout in milliseconds */
+  timeout?: number;
+  /** Stop on first critical finding */
+  stopOnCritical?: boolean;
+  /** Generate reports */
+  generateReports?: boolean;
+  /** Report options */
+  reportOptions?: {
+    audience: 'executive' | 'developer' | 'security';
+    format: 'json' | 'markdown' | 'html' | 'pdf';
+  };
+  /** LLM provider settings */
+  llm?: {
+    provider: 'anthropic' | 'openrouter' | 'gemini';
+    apiKey?: string;
+    model?: string;
+  };
+}
+
+/**
+ * Default scan configuration
+ */
+export const DEFAULT_SCAN_CONFIG: Omit<ScanConfig, 'target'> = {
+  type: 'url',
+  agents: ['recon', 'baas', 'secrets', 'auth', 'injection', 'supply_chain', 'business_logic', 'race_condition'],
+  maxConcurrency: 4,
+  timeout: 600000, // 10 minutes
+  stopOnCritical: false,
+  generateReports: true,
+  reportOptions: {
+    audience: 'developer',
+    format: 'markdown',
+  },
+  llm: {
+    provider: 'anthropic',
+  },
+};
+
+/**
+ * Scan progress tracking
+ */
+export interface ScanProgress {
+  /** Scan ID */
+  scanId: string;
+  /** Overall status */
+  status: ScanStatus;
+  /** Progress percentage (0-100) */
+  progress: number;
+  /** Current phase */
+  phase: ScanPhase;
+  /** Phase description */
+  phaseDescription: string;
+  /** Agent statuses */
+  agents: Record<AgentId, AgentProgress>;
+  /** Findings count by severity */
+  findingsCount: {
+    critical: number;
+    high: number;
+    medium: number;
+    low: number;
+    info: number;
+  };
+  /** Started timestamp */
+  startedAt: string;
+  /** Estimated completion */
+  estimatedCompletion?: string;
+  /** Error message if failed */
+  error?: string;
+}
+
+export type ScanPhase =
+  | 'initializing'
+  | 'recon'
+  | 'agent_swarm'
+  | 'analysis'
+  | 'report_generation'
+  | 'completed'
+  | 'failed';
+
+export interface AgentProgress {
+  /** Agent ID */
+  agentId: AgentId;
+  /** Agent name */
+  name: string;
+  /** Agent status */
+  status: AgentStatus;
+  /** Progress percentage (0-100) */
+  progress: number;
+  /** Current task */
+  currentTask?: string;
+  /** Findings found */
+  findingsCount: number;
+  /** Duration in ms */
+  duration: number;
+  /** Error if failed */
+  error?: string;
+}
+
+/**
+ * Complete scan result
+ */
+export interface ScanResult {
+  /** Scan ID */
+  scanId: string;
+  /** Configuration used */
+  config: ScanConfig;
+  /** Overall status */
+  status: ScanStatus;
+  /** All findings */
+  findings: Finding[];
+  /** Agent results */
+  agentResults: Record<AgentId, AgentResult>;
+  /** Vulnerability chains */
+  chains: VulnerabilityChain[];
+  /** VCVF fingerprints */
+  vcvfFingerprints: VCVFFingerprint[];
+  /** Trust inversions */
+  trustInversions: TrustInversion[];
+  /** Scan duration in milliseconds */
+  duration: number;
+  /** Timestamps */
+  timestamps: {
+    created: string;
+    started?: string;
+    completed?: string;
+  };
+  /** Error if failed */
+  error?: string;
+}
+
+// Import types for cross-references
+import type { VulnerabilityChain, VCVFFingerprint, TrustInversion } from './vulnerability.js';
+
+/**
+ * Zod schemas for validation
+ */
+export const ScanConfigSchema = z.object({
+  target: z.string().min(1),
+  type: z.enum(['url', 'directory', 'repository']),
+  agents: z.array(z.enum([
+    'recon',
+    'baas',
+    'secrets',
+    'auth',
+    'injection',
+    'supply_chain',
+    'business_logic',
+    'race_condition',
+  ])).optional(),
+  maxConcurrency: z.number().min(1).max(8).optional(),
+  timeout: z.number().min(1000).optional(),
+  stopOnCritical: z.boolean().optional(),
+  generateReports: z.boolean().optional(),
+  reportOptions: z.object({
+    audience: z.enum(['executive', 'developer', 'security']),
+    format: z.enum(['json', 'markdown', 'html', 'pdf']),
+  }).optional(),
+  llm: z.object({
+    provider: z.enum(['anthropic', 'openrouter', 'gemini']),
+    apiKey: z.string().optional(),
+    model: z.string().optional(),
+  }).optional(),
+});
