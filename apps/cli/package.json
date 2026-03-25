@@ -1,0 +1,42 @@
+{
+  "name": "@guardiant/cli",
+  "version": "0.1.0",
+  "type": "module",
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
+  },
+  "bin": {
+    "guardiant": "./dist/index.js",
+    "vibeguard": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@guardiant/core": "workspace:*",
+    "@guardiant/shared": "workspace:*",
+    "@guardiant/database": "workspace:*",
+    "@guardiant/queue": "workspace:*",
+    "ink": "^5.0.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "chalk": "^5.3.0",
+    "commander": "^12.1.0",
+    "ora": "^8.1.1",
+    "cli-table3": "^0.6.5",
+    "conf": "^13.0.1",
+    "update-notifier": "^7.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/react": "^18.3.14",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}

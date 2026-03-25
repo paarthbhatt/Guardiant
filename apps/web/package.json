@@ -1,0 +1,13 @@
+{
+  "name": "@guardiant/web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "sirv public --dev --port 3000",
+    "build": "echo 'Static site - no build needed'",
+    "start": "sirv public --port 3000"
+  },
+  "dependencies": {
+    "sirv-cli": "^2.0.2"
+  }
+}

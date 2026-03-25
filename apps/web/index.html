@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>Guardiant - Web Dashboard</title>
+	<style>
+		* { box-sizing: border-box; margin: 0; padding: 0; }
+		body {
+			font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+			background: #0f172a;
+			color: #e2e8f0;
+		}
+		.container {
+			max-width: 1400px;
+			margin: 0 auto;
+			padding: 2rem;
+		}
+		.header {
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+			margin-bottom: 2rem;
+			padding-bottom: 1rem;
+			border-bottom: 1px solid #334155;
+		}
+		.logo {
+			font-size: 1.5rem;
+			font-weight: 700;
+			color: #f97316;
+		}
+		.grid {
+			display: grid;
+			grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+			gap: 1.5rem;
+			margin-bottom: 2rem;
+		}
+		.card {
+			background: #1e293b;
+			border-radius: 0.75rem;
+			padding: 1.5rem;
+			border: 1px solid #334155;
+		}
+		.card-header {
+			display: flex;
+			justify-content: space-between;
+			align-items: center;
+			margin-bottom: 1rem;
+		}
+		.card-title {
+			font-size: 0.875rem;
+			text-transform: uppercase;
+			color: #94a3b8;
+			font-weight: 600;
+		}
+		.stat-value {
+			font-size: 2.5rem;
+			font-weight: 700;
+		}
+		.stat-value.critical { color: #ef4444; }
+		.stat-value.high { color: #f97316; }
+		.stat-value.medium { color: #eab308; }
+		.stat-value.low { color: #22c55e; }
+		.btn {
+			display: inline-flex;
+			align-items: center;
+			gap: 0.5rem;
+			padding: 0.75rem 1.5rem;
+			background: #f97316;
+			color: white;
+			border: none;
+			border-radius: 0.5rem;
+			font-size: 0.875rem;
+			font-weight: 600;
+			cursor: pointer;
+			transition: background 0.2s;
+		}
+		.btn:hover { background: #ea580c; }
+		.btn:disabled { background: #475569; cursor: not-allowed; }
+		.input {
+			width: 100%;
+			padding: 0.75rem 1rem;
+			background: #0f172a;
+			border: 1px solid #334155;
+			border-radius: 0.5rem;
+			color: #e2e8f0;
+			font-size: 1rem;
+		}
+		.input:focus {
+			outline: none;
+			border-color: #f97316;
+		}
+		.finding-list {
+			max-height: 400px;
+			overflow-y: auto;
+		}
+		.finding-item {
+			padding: 1rem;
+			background: #0f172a;
+			border-radius: 0.5rem;
+			margin-bottom: 0.75rem;
+			border-left: 3px solid;
+		}
+		.finding-item.critical { border-color: #ef4444; }
+		.finding-item.high { border-color: #f97316; }
+		.finding-item.medium { border-color: #eab308; }
+		.finding-item.low { border-color: #22c55e; }
+		.finding-title {
+			font-weight: 600;
+			margin-bottom: 0.25rem;
+		}
+		.finding-meta {
+			font-size: 0.75rem;
+			color: #94a3b8;
+		}
+		.severity-badge {
+			display: inline-block;
+			padding: 0.125rem 0.5rem;
+			border-radius: 9999px;
+			font-size: 0.75rem;
+			font-weight: 600;
+		}
+		.severity-badge.critical { background: #ef4444; }
+		.severity-badge.high { background: #f97316; }
+		.severity-badge.medium { background: #eab308; color: #0f172a; }
+		.severity-badge.low { background: #22c55e; }
+		.agent-grid {
+			display: grid;
+			grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+			gap: 1rem;
+		}
+		.agent-item {
+			padding: 1rem;
+			background: #0f172a;
+			border-radius: 0.5rem;
+			text-align: center;
+		}
+		.agent-status {
+			width: 12px;
+			height: 12px;
+			border-radius: 50%;
+			display: inline-block;
+			margin-right: 0.5rem;
+		}
+		.agent-status.idle { background: #475569; }
+		.agent-status.running { background: #3b82f6; animation: pulse 1s infinite; }
+		.agent-status.completed { background: #22c55e; }
+		.agent-status.failed { background: #ef4444; }
+		@keyframes pulse {
+			0%, 100% { opacity: 1; }
+			50% { opacity: 0.5; }
+		}
+		.progress-bar {
+			height: 8px;
+			background: #334155;
+			border-radius: 4px;
+			overflow: hidden;
+			margin-top: 0.5rem;
+		}
+		.progress-fill {
+			height: 100%;
+			background: #f97316;
+			transition: width 0.3s;
+		}
+		.chain-item {
+			padding: 1rem;
+			background: #0f172a;
+			border-radius: 0.5rem;
+			margin-bottom: 0.75rem;
+			border: 1px solid #7c3aed;
+		}
+		.chain-title {
+			font-weight: 600;
+			color: #a78bfa;
+			margin-bottom: 0.5rem;
+		}
+		.chain-steps {
+			font-size: 0.875rem;
+			color: #94a3b8;
+		}
+	</style>
+</head>
+<body>
+	<div class="container">
+		<div class="header">
+			<div class="logo">🛡️ Guardiant</div>
+			<div>
+				<button class="btn" id="newScanBtn">+ New Scan</button>
+			</div>
+		</div>
+
+		<div class="grid">
+			<div class="card">
+				<div class="card-header">
+					<span class="card-title">Critical</span>
+					<span class="severity-badge critical" id="criticalCount">0</span>
+				</div>
+				<div class="stat-value critical" id="criticalValue">0</div>
+			</div>
+			<div class="card">
+				<div class="card-header">
+					<span class="card-title">High</span>
+					<span class="severity-badge high" id="highCount">0</span>
+				</div>
+				<div class="stat-value high" id="highValue">0</div>
+			</div>
+			<div class="card">
+				<div class="card-header">
+					<span class="card-title">Medium</span>
+					<span class="severity-badge medium" id="mediumCount">0</span>
+				</div>
+				<div class="stat-value medium" id="mediumValue">0</div>
+			</div>
+			<div class="card">
+				<div class="card-header">
+					<span class="card-title">Low</span>
+					<span class="severity-badge low" id="lowCount">0</span>
+				</div>
+				<div class="stat-value low" id="lowValue">0</div>
+			</div>
+		</div>
+
+		<div class="grid">
+			<div class="card">
+				<div class="card-header">
+					<span class="card-title">Scan Target</span>
+				</div>
+				<input type="text" class="input" id="targetInput" placeholder="https://example.com">
+				<div style="margin-top: 1rem;">
+					<button class="btn" id="startScanBtn" style="width: 100%;">Start Scan</button>
+				</div>
+			</div>
+			<div class="card">
+				<div class="card-header">
+					<span class="card-title">Scan Progress</span>
+				</div>
+				<div id="scanStatus">Ready to scan</div>
+				<div class="progress-bar">
+					<div class="progress-fill" id="progressFill" style="width: 0%"></div>
+				</div>
+			</div>
+		</div>
+
+		<div class="grid">
+			<div class="card">
+				<div class="card-header">
+					<span class="card-title">Security Agents</span>
+				</div>
+				<div class="agent-grid" id="agentGrid">
+					<div class="agent-item">
+						<span class="agent-status idle"></span>Recon
+					</div>
+					<div class="agent-item">
+						<span class="agent-status idle"></span>Injection
+					</div>
+					<div class="agent-item">
+						<span class="agent-status idle"></span>Auth
+					</div>
+					<div class="agent-item">
+						<span class="agent-status idle"></span>BaaS
+					</div>
+					<div class="agent-item">
+						<span class="agent-status idle"></span>Secrets
+					</div>
+					<div class="agent-item">
+						<span class="agent-status idle"></span>Supply Chain
+					</div>
+					<div class="agent-item">
+						<span class="agent-status idle"></span>Business Logic
+					</div>
+					<div class="agent-item">
+						<span class="agent-status idle"></span>Race Conditions
+					</div>
+				</div>
+			</div>
+			<div class="card">
+				<div class="card-header">
+					<span class="card-title">Compound Vulnerability Chains</span>
+					<span id="chainCount">0</span>
+				</div>
+				<div id="chainsList">
+					<div style="color: #64748b; text-align: center; padding: 2rem;">
+						No chains detected
+					</div>
+				</div>
+			</div>
+		</div>
+
+		<div class="card">
+			<div class="card-header">
+				<span class="card-title">Recent Findings</span>
+			</div>
+			<div class="finding-list" id="findingsList">
+				<div style="color: #64748b; text-align: center; padding: 2rem;">
+					No findings yet. Start a scan to discover vulnerabilities.
+				</div>
+			</div>
+		</div>
+	</div>
+
+	<script type="module">
+		const agents = ['recon', 'injection', 'auth', 'baas', 'secrets', 'supply-chain', 'business-logic', 'race-conditions'];
+		const agentStatusEls = {};
+
+		document.querySelectorAll('.agent-item').forEach((el, i) => {
+			agentStatusEls[agents[i]] = el.querySelector('.agent-status');
+		});
+
+		function updateAgentStatus(agentId, status) {
+			const el = agentStatusEls[agentId];
+			if (el) {
+				el.className = 'agent-status ' + status;
+			}
+		}
+
+		function updateStats(findings) {
+			const counts = { critical: 0, high: 0, medium: 0, low: 0 };
+			findings.forEach(f => {
+				if (counts.hasOwnProperty(f.severity)) {
+					counts[f.severity]++;
+				}
+			});
+
+			document.getElementById('criticalCount').textContent = counts.critical;
+			document.getElementById('criticalValue').textContent = counts.critical;
+			document.getElementById('highCount').textContent = counts.high;
+			document.getElementById('highValue').textContent = counts.high;
+			document.getElementById('mediumCount').textContent = counts.medium;
+			document.getElementById('mediumValue').textContent = counts.medium;
+			document.getElementById('lowCount').textContent = counts.low;
+			document.getElementById('lowValue').textContent = counts.low;
+		}
+
+		function renderFindings(findings) {
+			const container = document.getElementById('findingsList');
+
+			if (findings.length === 0) {
+				container.innerHTML = '<div style="color: #64748b; text-align: center; padding: 2rem;">No findings yet.</div>';
+				return;
+			}
+
+			container.innerHTML = findings.map(f => `
+				<div class="finding-item ${f.severity}">
+					<div class="finding-title">
+						${f.title}
+						<span class="severity-badge ${f.severity}">${f.severity.toUpperCase()}</span>
+					</div>
+					<div class="finding-meta">${f.category} • CVSS ${f.cvssScore} • ${f.discoveredBy}</div>
+				</div>
+			`).join('');
+		}
+
+		document.getElementById('startScanBtn').addEventListener('click', async () => {
+			const target = document.getElementById('targetInput').value;
+			if (!target) {
+				alert('Please enter a target URL');
+				return;
+			}
+
+			document.getElementById('startScanBtn').disabled = true;
+			document.getElementById('scanStatus').textContent = 'Initializing scan...';
+
+			try {
+				const response = await fetch('/api/scan', {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ target, type: 'url' }),
+				});
+
+				const data = await response.json();
+
+				// Update progress
+				document.getElementById('scanStatus').textContent = 'Running agents...';
+				document.getElementById('progressFill').style.width = '50%';
+
+				if (data.findings) {
+					updateStats(data.findings);
+					renderFindings(data.findings);
+				}
+
+				if (data.chains) {
+					document.getElementById('chainCount').textContent = data.chains.length;
+				}
+
+				document.getElementById('scanStatus').textContent = 'Scan complete!';
+				document.getElementById('progressFill').style.width = '100%';
+			} catch (error) {
+				console.error('Scan failed:', error);
+				document.getElementById('scanStatus').textContent = 'Scan failed: ' + error.message;
+			} finally {
+				document.getElementById('startScanBtn').disabled = false;
+			}
+		});
+
+		// Demo mode - populate with sample data
+		const sampleFindings = [
+			{ title: 'SQL Injection in /api/users', severity: 'critical', category: 'A03_INJECTION', cvssScore: 9.8, discoveredBy: 'injection-agent' },
+			{ title: 'Exposed Supabase API Key', severity: 'high', category: 'A02_CRYPTOGRAPHIC_FAILURES', cvssScore: 7.5, discoveredBy: 'secrets-agent' },
+			{ title: 'Missing Authorization Check', severity: 'high', category: 'A01_BROKEN_ACCESS_CONTROL', cvssScore: 7.2, discoveredBy: 'auth-agent' },
+			{ title: 'CORS Permissive Configuration', severity: 'medium', category: 'A05_SECURITY_MISCONFIGURATION', cvssScore: 5.3, discoveredBy: 'recon-agent' },
+		];
+
+		updateStats(sampleFindings);
+		renderFindings(sampleFindings);
+	</script>
+</body>
+</html>

@@ -1,0 +1,100 @@
+# =============================================================================
+# Guardiant Default Agent Configuration
+#
+# All agents are enabled by default. Configure per-agent timeouts, priorities,
+# and settings here. These values are the fallback when no CLI config overrides
+# are present.
+# =============================================================================
+
+agents:
+  recon:
+    enabled: true
+    priority: critical
+    timeout: 60000        # 60 seconds
+    maxRetries: 3
+    settings:
+      maxEndpoints: 200        # Maximum endpoints to discover
+      maxJsBundles: 10         # Maximum JS bundles to analyze
+      followRedirects: true
+      userAgent: "Guardiant Security Scanner/0.1.0"
+
+  baas:
+    enabled: true
+    priority: critical
+    timeout: 120000       # 2 minutes
+    maxRetries: 2
+    settings:
+      testSupabase: true
+      testFirebase: true
+      testStoragePermissions: true
+
+  secrets:
+    enabled: true
+    priority: critical
+    timeout: 30000        # 30 seconds
+    maxRetries: 3
+    settings:
+      scanJsBundles: true
+      scanHtmlComments: true
+      scanMetaTags: true
+
+  auth:
+    enabled: true
+    priority: high
+    timeout: 180000       # 3 minutes
+    maxRetries: 2
+    settings:
+      testIDOR: true
+      testPrivilegeEscalation: true
+      testJwtWeakness: true
+
+  injection:
+    enabled: true
+    priority: high
+    timeout: 300000       # 5 minutes
+    maxRetries: 1
+    settings:
+      testSQLi: true
+      testXSS: true
+      testCommandInjection: true
+      testPathTraversal: true
+      maxEndpoints: 50        # Cap to prevent very long scans
+
+  supply_chain:
+    enabled: true
+    priority: medium
+    timeout: 60000        # 60 seconds
+    maxRetries: 3
+    settings:
+      checkNpmAudit: true
+      checkLockfileIntegrity: true
+
+  business_logic:
+    enabled: true
+    priority: medium
+    timeout: 180000       # 3 minutes
+    maxRetries: 1
+    settings:
+      testPaymentFlows: true
+      testRateLimiting: true
+
+  race_condition:
+    enabled: true
+    priority: low
+    timeout: 120000       # 2 minutes
+    maxRetries: 2
+    settings:
+      concurrentRequests: 10
+      windowMs: 100
+
+# =============================================================================
+# Global scan settings
+# =============================================================================
+
+scan:
+  maxConcurrency: 3           # Maximum agents running in parallel
+  requestTimeoutMs: 30000     # Per-HTTP-request timeout
+  scanTimeoutMs: 3600000      # Maximum total scan time (1 hour)
+  followRedirects: true
+  respectRobotsTxt: false     # Security scanners intentionally ignore robots.txt
+  userAgent: "Guardiant Security Scanner/0.1.0"

@@ -1,0 +1,105 @@
+# =============================================================================
+# Guardiant VCVF (Vibe Code Vulnerability Fingerprint) Rules
+#
+# Each pattern defines the detection heuristics for a class of AI-generated
+# code vulnerabilities. Patterns are evaluated against discovered source code
+# by the VCVFMatcher.
+# =============================================================================
+
+patterns:
+
+  - id: symmetric_crud_vulnerabilities
+    name: "Symmetric CRUD Vulnerabilities"
+    description: >
+      AI assistants tend to generate symmetric CRUD routes that apply the same
+      authentication check to all operations, including sensitive ones like DELETE
+      or admin-level reads. This pattern detects identical auth logic across
+      all HTTP methods on a resource.
+    enabled: true
+    confidence: 0.85
+    indicators:
+      - "router.get.*router.post.*router.put.*router.delete"
+      - "app.get.*app.post.*app.put.*app.delete"
+    predictedVulnerabilities:
+      - A01_BROKEN_ACCESS_CONTROL
+      - A07_AUTH_FAILURES
+
+  - id: auth_authz_conflation
+    name: "Auth / Authz Conflation"
+    description: >
+      Code checks whether a user IS logged in (authentication) but not WHAT
+      they are permitted to do (authorization). This is a textbook AI code error
+      where session checks are used as authorization gates.
+    enabled: true
+    confidence: 0.90
+    indicators:
+      - "if.*session.*userId"
+      - "if.*req\\.user"
+      - "if.*isAuthenticated"
+      - "if.*token.*delete|if.*token.*admin"
+    predictedVulnerabilities:
+      - A01_BROKEN_ACCESS_CONTROL
+
+  - id: optimistic_trust_patterns
+    name: "Optimistic Trust Patterns"
+    description: >
+      Client-side validation without a corresponding server-side copy. AI
+      generates form validation that relies on the browser, with a backend
+      that trusts the submitted data without re-validating.
+    enabled: true
+    confidence: 0.75
+    indicators:
+      - "required.*input"
+      - "min.*max.*input"
+      - "onSubmit.*validate"
+    predictedVulnerabilities:
+      - A03_INJECTION
+      - A08_INTEGRITY_FAILURES
+
+  - id: baas_bypass_architecture
+    name: "BaaS Bypass Architecture"
+    description: >
+      Direct BaaS client access from the browser (Supabase, Firebase) without
+      server-side middleware. AI often generates direct JS SDK usage which can
+      expose service role keys or bypass RLS if misconfigured.
+    enabled: true
+    confidence: 0.95
+    indicators:
+      - "createClient.*SUPABASE_SERVICE_ROLE_KEY"
+      - "createClient.*serviceRoleKey"
+      - "initializeApp.*serviceAccount"
+      - "firebase-admin.*client"
+    predictedVulnerabilities:
+      - A01_BROKEN_ACCESS_CONTROL
+      - A05_SECURITY_MISCONFIGURATION
+
+  - id: missing_negative_cases
+    name: "Missing Negative Cases"
+    description: >
+      Empty or missing error handling paths. AI-generated code often includes
+      only the happy path and leaves catch blocks empty or returning success.
+    enabled: true
+    confidence: 0.70
+    indicators:
+      - "catch.*{\\s*}"
+      - "catch.*console\\.log"
+      - "\\.catch\\(\\(\\)\\s*=>"
+    predictedVulnerabilities:
+      - A09_LOGGING_FAILURES
+
+  - id: over_permissive_defaults
+    name: "Over-Permissive Defaults"
+    description: >
+      CORS wildcards, public storage buckets, SECURITY DEFINER functions with
+      no additional checks, or disabled RLS. AI generates permissive defaults
+      because they work immediately without credential setup.
+    enabled: true
+    confidence: 0.80
+    indicators:
+      - "cors.*origin.*\\*"
+      - "Access-Control-Allow-Origin.*\\*"
+      - "SECURITY DEFINER"
+      - "allow.*true"
+    predictedVulnerabilities:
+      - A05_SECURITY_MISCONFIGURATION
+      - A01_BROKEN_ACCESS_CONTROL
