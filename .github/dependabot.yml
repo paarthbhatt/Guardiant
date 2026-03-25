@@ -1,0 +1,33 @@
+version: 2
+
+updates:
+  # npm packages
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 10
+    groups:
+      typescript:
+        patterns:
+          - "typescript"
+          - "@types/*"
+      vitest:
+        patterns:
+          - "vitest"
+      turbo:
+        patterns:
+          - "turbo"
+
+  # GitHub Actions
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 5
