@@ -1,0 +1,62 @@
+{
+  "name": "@guardiant/core",
+  "version": "0.1.0",
+  "type": "module",
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./agents": {
+      "types": "./dist/agents/index.d.ts",
+      "import": "./dist/agents/index.js"
+    },
+    "./llm": {
+      "types": "./dist/llm/index.d.ts",
+      "import": "./dist/llm/index.js"
+    },
+    "./analyzers": {
+      "types": "./dist/analyzers/index.d.ts",
+      "import": "./dist/analyzers/index.js"
+    },
+    "./orchestrator": {
+      "types": "./dist/orchestrator/index.d.ts",
+      "import": "./dist/orchestrator/index.js"
+    },
+    "./cache": {
+      "types": "./dist/cache/recon-cache.d.ts",
+      "import": "./dist/cache/recon-cache.js"
+    },
+    "./report/stream": {
+      "types": "./dist/report/stream.d.ts",
+      "import": "./dist/report/stream.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
+    "@guardiant/shared": "workspace:*",
+    "@guardiant/database": "workspace:*",
+    "@guardiant/queue": "workspace:*",
+    "openai": "^4.77.0",
+    "@google/generative-ai": "^0.21.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}
