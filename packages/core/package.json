@@ -71,7 +71,7 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.39.0",
+    "@anthropic-ai/sdk": "^0.80.0",
     "@google/generative-ai": "^0.21.0",
     "@guardiant/database": "workspace:*",
     "@guardiant/queue": "workspace:*",
