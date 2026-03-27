@@ -1,11 +1,31 @@
 {
   "name": "@guardiant/core",
-  "version": "0.1.0",
-  "type": "module",
+  "version": "0.2.0",
+  "description": "Core business logic for Guardiant security platform - agents, analyzers, orchestrator, and report generation",
+  "keywords": [
+    "security",
+    "vulnerability",
+    "agent",
+    "scanner",
+    "penetration-testing",
+    "ai-security"
+  ],
+  "author": "Guardiant Team",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/guardiant/guardiant.git",
+    "directory": "packages/core"
+  },
+  "homepage": "https://github.com/guardiant/guardiant#readme",
+  "bugs": {
+    "url": "https://github.com/guardiant/guardiant/issues"
+  },
   "publishConfig": {
     "access": "public",
     "registry": "https://registry.npmjs.org"
   },
+  "type": "module",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -38,22 +58,27 @@
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
     "clean": "rm -rf dist"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
-    "@guardiant/shared": "workspace:*",
+    "@google/generative-ai": "^0.21.0",
     "@guardiant/database": "workspace:*",
     "@guardiant/queue": "workspace:*",
+    "@guardiant/shared": "workspace:*",
     "openai": "^4.77.0",
-    "@google/generative-ai": "^0.21.0",
-    "zod": "^3.24.1"
+    "zod": "^3.24.1",
+    "zod-to-json-schema": "^3.25.1"
   },
   "devDependencies": {
     "typescript": "^5.7.2",

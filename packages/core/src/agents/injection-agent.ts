@@ -1,7 +1,8 @@
-import { AbstractAgent, createFinding } from './base.js';
+import { AbstractAgent } from './base.js';
+import { createFinding } from './types.js';
 import type { AgentContext, AgentResult, Finding, DiscoveredEndpoint } from '@guardiant/shared';
 import { OWASP_CATEGORIES } from '@guardiant/shared';
-import { createWebScanner, type VulnerabilityCheck } from '../http/client.js';
+import { createWebScanner, type VulnerabilityCheck } from '../http/index.js';
 import { getPayloads, checkVulnerability } from '../payloads/index.js';
 
 /**
@@ -39,7 +40,7 @@ export class InjectionAgent extends AbstractAgent {
           { path: '/', method: 'GET', authentication: false },
           { path: '/api', method: 'GET', authentication: false },
           { path: '/api/users', method: 'GET', authentication: false },
-          { path: '/search', method: 'GET', authentication: false, parameters: [{ name: 'q', location: 'query' }] },
+          { path: '/search', method: 'GET', authentication: false, parameters: [{ name: 'q', location: 'query', type: 'string' }] },
           { path: '/login', method: 'POST', authentication: false },
         );
       }
@@ -113,8 +114,8 @@ export class InjectionAgent extends AbstractAgent {
     const params = endpoint.parameters ?? [];
     if (params.length === 0 && endpoint.method === 'GET') {
       // Test URL params even if not discovered
-      params.push({ name: 'id', location: 'query' });
-      params.push({ name: 'q', location: 'query' });
+      params.push({ name: 'id', location: 'query', type: 'string' });
+      params.push({ name: 'q', location: 'query', type: 'string' });
     }
 
     for (const param of params) {
@@ -159,8 +160,8 @@ export class InjectionAgent extends AbstractAgent {
 
     const params = endpoint.parameters ?? [];
     if (params.length === 0 && endpoint.method === 'GET') {
-      params.push({ name: 'q', location: 'query' });
-      params.push({ name: 'search', location: 'query' });
+      params.push({ name: 'q', location: 'query', type: 'string' });
+      params.push({ name: 'search', location: 'query', type: 'string' });
     }
 
     for (const param of params) {
@@ -383,7 +384,7 @@ Use polyglot payloads and test all parameters. Report findings with evidence.`;
     return `Test for injection vulnerabilities at ${context.target.url}`;
   }
 
-  async parseResponse(response: string, context: AgentContext): Promise<Finding[]> {
+  async parseResponse(_response: string, _context: AgentContext): Promise<Finding[]> {
     return []; // Findings generated directly
   }
 }

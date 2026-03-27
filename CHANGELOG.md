@@ -6,14 +6,69 @@ This project follows [Semantic Versioning](https://semver.org) and [Keep a Chang
 
 ---
 
-## [Unreleased]
+## [0.2.0] — 2026-03-25
 
 ### Added
-- Phase 8: Testing infrastructure — Vitest unit tests for shared utilities, agents, analyzers, and queue
-- Phase 8: Documentation — `docs/` folder with overview, architecture, configuration, and agent references
-- Phase 8: Repository polish — `.env.example`, `SECURITY.md`, `CHANGELOG.md`
-- Phase 8: Dockerfile — multi-stage build with non-root user
-- Phase 8: GitHub Actions — CI, release, Docker, and Dependabot workflows
+
+#### Type Stabilization (Phase 10)
+- Complete TypeScript type safety across all packages
+- Enhanced VCVF pattern matching with proper glob-to-regex conversion
+- Auth/authz conflation detection for session-based authentication
+- Risk assessment with 5-level severity system (critical/high/medium/low/info)
+
+#### Testing Infrastructure (Phase 8)
+- Comprehensive unit tests for all agents using Vitest
+- Integration tests for analysis pipeline (CVC → VCVF → TIEF → Report)
+- E2E tests for CLI commands (scan, report, config)
+- Test coverage reporting configuration
+
+#### Documentation (Phase 8)
+- Complete `README.md` with Phase 7 completion status
+- `CONTRIBUTING.md` with development setup, code style, and PR process
+- `docs/` folder with overview, architecture, configuration, and agent references
+
+#### CI/CD (Phase 8)
+- GitHub Actions CI workflow for build, test, and typecheck
+- GitHub Actions release workflow with NPM publishing
+- Dependabot configuration for dependency updates
+
+#### NPM Package Preparation (Phase 8)
+- Proper `package.json` configuration for all packages
+- `publishConfig` for public NPM publishing
+- Repository, homepage, and bugs fields
+- Proper `exports` field for ESM modules
+
+### Changed
+
+#### Type System Improvements (Phase 10)
+- Resolved 230+ TypeScript errors across all packages
+- Fixed module resolution in all package tsconfigs (emitDeclarationOnly: false)
+- Updated glob pattern matching to properly handle `**/` in file patterns
+- CLI tsconfig now excludes test files from compilation
+- Added proper TypeScript type for discovered endpoints
+
+#### Test Suite Enhancement (Phase 10)
+- Fixed 6 test failures in orchestrator and pipeline integration tests
+- Enhanced VCVF pattern matching tests with realistic code samples
+- Updated risk assessment tests to handle empty findings correctly
+- All 102 tests now passing (shared: 57, queue: 11, core: 34)
+
+#### Previous Changes (Phase 8)
+- Updated version from 0.1.0 to 0.2.0
+- Improved integration test coverage for scan pipeline
+- Enhanced E2E CLI tests with more validation scenarios
+
+### Fixed
+
+#### Phase 10 Type Stabilization
+- **Glob pattern matching** — Fixed `**/` regex conversion in VCVFMatcher to properly match nested files
+- **Risk assessment** — Added 'info' level to RiskAssessment type union and cascaded to all switch statements
+- **Risk score calculation** — Now includes low-severity findings in composite risk score
+- **Empty findings handling** — Reports now return 'info' level instead of 'low' when no vulnerabilities found
+- **VCVF pattern detection** — Added session-based auth pattern to detect `req.session.userId` checks without authorization
+- **TIEF detector tests** — Added missing `vcvfPattern` field to test data
+- **CLI build** — Excluded test files from tsconfig compilation to prevent build errors
+- **Unused parameters** — Removed unused imports and fixed parameter signatures across CLI and core packages
 
 ---
 
@@ -53,8 +108,18 @@ This project follows [Semantic Versioning](https://semver.org) and [Keep a Chang
 - Remediation code diff generation
 
 #### UI (Phase 6-7)
-- CLI — `scan`, `report`, `config` commands via Commander.js
+- CLI — `scan`, `report`, `config`, `version` commands via Commander.js
 - Web dashboard — Static HTML with scan results visualization
 
-[Unreleased]: https://github.com/guardiant/guardiant/compare/v0.1.0...HEAD
+---
+
+## Unreleased
+
+### Planned
+- Web dashboard (Next.js) for real-time scan monitoring
+- VS Code extension for in-IDE security scanning
+- Additional BaaS platform support (Appwrite, Amplify)
+- Custom VCVF rule configuration
+
+[0.2.0]: https://github.com/guardiant/guardiant/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/guardiant/guardiant/releases/tag/v0.1.0

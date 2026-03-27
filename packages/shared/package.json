@@ -1,7 +1,28 @@
 {
   "name": "@guardiant/shared",
-  "version": "0.1.0",
-  "private": true,
+  "version": "0.2.0",
+  "description": "Shared types, constants, and utilities for Guardiant security platform",
+  "keywords": [
+    "security",
+    "vulnerability",
+    "types",
+    "utilities"
+  ],
+  "author": "Guardiant Team",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/guardiant/guardiant.git",
+    "directory": "packages/shared"
+  },
+  "homepage": "https://github.com/guardiant/guardiant#readme",
+  "bugs": {
+    "url": "https://github.com/guardiant/guardiant/issues"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
+  },
   "type": "module",
   "exports": {
     ".": {
@@ -23,6 +44,9 @@
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",

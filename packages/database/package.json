@@ -1,7 +1,29 @@
 {
   "name": "@guardiant/database",
-  "version": "0.1.0",
-  "private": true,
+  "version": "0.2.0",
+  "description": "SQLite database schema and operations for Guardiant security platform",
+  "keywords": [
+    "security",
+    "database",
+    "sqlite",
+    "drizzle",
+    "orm"
+  ],
+  "author": "Guardiant Team",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/guardiant/guardiant.git",
+    "directory": "packages/database"
+  },
+  "homepage": "https://github.com/guardiant/guardiant#readme",
+  "bugs": {
+    "url": "https://github.com/guardiant/guardiant/issues"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
+  },
   "type": "module",
   "exports": {
     ".": {
@@ -15,6 +37,9 @@
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",

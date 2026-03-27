@@ -77,9 +77,9 @@ describe('MemoryQueue', () => {
       expect(job?.status).toBe('completed');
     });
 
-    it('should call onCompleted event handler', async () => {
+    it('should call completed event handler', async () => {
       let completedJobId: string | undefined;
-      queue.on('onCompleted', (_job, _result) => { completedJobId = 'job-event'; });
+      queue.on('completed', (job, _result) => { completedJobId = job.id; });
       queue.process(async () => 'done');
 
       await queue.add('job-event', { value: 'test' });
@@ -88,13 +88,13 @@ describe('MemoryQueue', () => {
       expect(completedJobId).toBe('job-event');
     });
 
-    it('should call onFailed event handler when processor throws', async () => {
+    it('should call failed event handler when processor throws', async () => {
       let failedJobId: string | undefined;
-      queue.on('onFailed', (job) => { failedJobId = job.id; });
+      queue.on('failed', (job) => { failedJobId = job.id; });
       queue.process(async () => { throw new Error('Processor failure'); });
 
       const failQueue = createMemoryQueue({ name: 'test-queue', maxRetries: 1 });
-      failQueue.on('onFailed', (job) => { failedJobId = job.id; });
+      failQueue.on('failed', (job) => { failedJobId = job.id; });
       failQueue.process(async () => { throw new Error('Processor failure'); });
       await failQueue.add('job-fail', { value: 'x' });
 

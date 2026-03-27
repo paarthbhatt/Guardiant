@@ -1,12 +1,7 @@
-/**
- * Scanner utilities for web application testing
- */
-
-import { createHttpClient, isUrlReachable, type HttpResponse } from './client.js';
+import { createHttpClient, isUrlReachable, type HttpResponse } from './index.js';
 import { getPayloads, checkVulnerability } from './payloads.js';
-import type { AgentContext, Finding, DiscoveredEndpoint, ReconData } from '@guardiant/shared';
+import type { Finding, DiscoveredEndpoint, OWASPCategory } from '@guardiant/shared';
 import { createFinding } from '../agents/types.js';
-import { OWASP_CATEGORIES } from '@guardiant/shared';
 
 export interface ScannerConfig {
   timeout: number;
@@ -98,7 +93,7 @@ export class WebScanner {
     while ((match = linkRegex.exec(html)) !== null) {
       const href = match[1];
       try {
-        const fullUrl = new URL(href, baseUrl);
+        const fullUrl = new URL(href as string, baseUrl);
         if (fullUrl.origin === url.origin) {
           endpoints.push({
             path: fullUrl.pathname + fullUrl.search,
@@ -117,26 +112,29 @@ export class WebScanner {
       const action = match[1];
       const formHtml = html.substring(match.index);
       const methodMatch = formHtml.match(/method=["']([^"']+)["']/i);
-      const method = methodMatch ? methodMatch[1].toUpperCase() : 'GET';
+      const method = methodMatch?.[1]?.toUpperCase() ?? 'GET';
 
       try {
-        const fullUrl = new URL(action, baseUrl);
+        const fullUrl = new URL(action as string, baseUrl);
         const params: DiscoveredEndpoint['parameters'] = [];
 
         // Find form inputs
         const inputRegex = /<input[^>]+name=["']([^"']+)["']/gi;
         let inputMatch;
         while ((inputMatch = inputRegex.exec(formHtml)) !== null) {
-          params.push({
-            name: inputMatch[1],
-            location: 'body',
-            type: 'string',
-          });
+          const inputName = inputMatch[1];
+          if (inputName) {
+            params.push({
+              name: inputName,
+              location: 'body',
+              type: 'string',
+            });
+          }
         }
 
         endpoints.push({
           path: fullUrl.pathname,
-          method: method as DiscoveredEndpoint['method'],
+          method: (method as string).toUpperCase() as DiscoveredEndpoint['method'],
           parameters: params,
           authentication: false,
         });
@@ -303,7 +301,7 @@ export class WebScanner {
         `The ${check.parameter ? `parameter "${check.parameter}"` : 'endpoint'} is vulnerable to ${check.type} attacks.`
       )
       .severity(severityMap[check.type] ?? 'medium')
-      .category(categoryMap[check.type] ?? 'A03_INJECTION')
+      .category((categoryMap[check.type] as OWASPCategory) ?? 'A03_INJECTION')
       .cvssScore(check.type === 'sqli' || check.type === 'cmdi' ? 9.8 : 7.5)
       .confidence(0.85)
       .evidence({

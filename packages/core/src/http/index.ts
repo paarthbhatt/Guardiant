@@ -2,7 +2,7 @@
  * HTTP Client for security testing
  */
 
-import type { AgentContext } from '@guardiant/shared';
+
 
 export interface HttpRequestOptions {
   method: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH' | 'HEAD' | 'OPTIONS';
@@ -135,3 +135,7 @@ export function buildUrl(baseUrl: string, params: Record<string, string | number
   }
   return url.toString();
 }
+
+// Re-export from web-scanner
+export { createWebScanner, WebScanner } from '../scanner/web-scanner.js';
+export type { VulnerabilityCheck, ScannerConfig, ScanResult } from '../scanner/web-scanner.js';

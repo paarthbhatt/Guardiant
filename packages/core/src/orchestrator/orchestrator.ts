@@ -1,25 +1,25 @@
-import type { ScanConfig, AgentId, AgentResult, Finding, VulnerabilityChain, VCVFFingerprint, TrustInversion, ReconData } from '@guardiant/shared';
-import { DEFAULT_AGENT_CONFIGS } from '@guardiant/shared';
-import { agentRegistry } from './registry.js';
-import { AGENT_EXECUTION_ORDER, AGENT_DEPENDENCIES } from './constants.js';
-import { createCVCAnalyzer, type CVCAnalyzer } from './analyzers/cvc-analyzer.js';
-import { createVCVFMatcher, type VCVFMatcher } from './analyzers/vcvf-matcher.js';
-import { createTIEFDetector, type TIEFDetector } from './analyzers/tief-detector.js';
-import type { LLMClient } from './llm/index.js';
-import { createLogger } from '@guardiant/shared';
+import type { ScanConfig, AgentId, AgentResult, Finding, VulnerabilityChain, VCVFFingerprint, TrustInversion, ReconData, VCVFPatternType } from '@guardiant/shared';
+import { DEFAULT_AGENT_CONFIGS, createLogger } from '@guardiant/shared';
+import { agentRegistry } from '../agents/registry.js';
+import { AGENT_EXECUTION_ORDER } from './constants.js';
+import { createCVCAnalyzer, type CVCAnalyzer } from '../analyzers/cvc-analyzer.js';
+
+import { createTIEFDetector, type TIEFDetector } from '../analyzers/tief-detector.js';
+
 
 /**
  * Orchestrator coordinates all agents and analysis
  */
 export class Orchestrator {
   private cvcAnalyzer: CVCAnalyzer;
-  private vcvfMatcher: VCVFMatcher;
+  // private vcvfMatcher: VCVFMatcher; // currently unused natively but kept per design, keeping instance for future or we can remove it.
+  // actually wait, let's just remove vcvfMatcher field if it's unused.
   private tiefDetector: TIEFDetector;
   private logger = createLogger({ level: 'info' });
 
-  constructor(private config?: { llmClient?: LLMClient }) {
+  constructor() {
     this.cvcAnalyzer = createCVCAnalyzer();
-    this.vcvfMatcher = createVCVFMatcher();
+    // this.vcvfMatcher = createVCVFMatcher();
     this.tiefDetector = createTIEFDetector();
   }
 
@@ -57,7 +57,7 @@ export class Orchestrator {
 
     // Phase 2: Run all other agents in parallel
     this.logger.info('Phase 2: Running Agent Swarm...');
-    const parallelAgents = AGENT_EXECUTION_ORDER[1]; // All agents except recon
+    const parallelAgents = AGENT_EXECUTION_ORDER[1] ?? []; // All agents except recon
 
     const agentPromises = parallelAgents.map(async (agentId) => {
       const agent = agentRegistry.get(agentId);
@@ -130,7 +130,7 @@ export class Orchestrator {
     // For now, use recon data patterns
     const vcvfFingerprints: VCVFFingerprint[] = reconData?.vcvfPatterns.map(p => ({
       id: `vcvf_${p.type}_${Date.now()}`,
-      patternType: p.type,
+      patternType: p.type as VCVFPatternType,
       confidence: p.confidence,
       evidence: [],
       locations: p.locations,
@@ -196,6 +196,6 @@ export class Orchestrator {
 /**
  * Create orchestrator
  */
-export function createOrchestrator(config?: { llmClient?: LLMClient }): Orchestrator {
-  return new Orchestrator(config);
+export function createOrchestrator(): Orchestrator {
+  return new Orchestrator();
 }

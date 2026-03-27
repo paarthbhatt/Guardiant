@@ -19,7 +19,7 @@ export interface RiskAssessment {
   /** Overall risk score (1-10) */
   score: number;
   /** Risk level */
-  level: 'critical' | 'high' | 'medium' | 'low';
+  level: 'critical' | 'high' | 'medium' | 'low' | 'info';
   /** Business impact summary */
   businessImpact: string;
   /** Data exposure risk */

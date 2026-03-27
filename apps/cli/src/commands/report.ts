@@ -69,7 +69,7 @@ function displayFindings(findings: any[], format: string): void {
 function generateReport(
   scan: Scan,
   findings: any[],
-  format: string,
+  _format: string,
   audience: string
 ): void {
   console.log(chalk.bold('\nGuardiant Security Report'));
@@ -116,7 +116,7 @@ function generateReport(
       console.log(chalk.gray('─'.repeat(40)));
       console.log(`Severity: ${formatSeverity(finding.severity)}`);
       console.log(`Category: ${finding.category}`);
-      console.log(`Confidence: ${formatNumber(finding.confidence * 100, 0)}%`);
+      console.log(`Confidence: ${formatNumber(Math.round(finding.confidence * 100))}%`);
       console.log(`\n${finding.description}`);
       console.log('\n' + chalk.bold('Remediation:'));
       console.log(finding.remediation?.summary || 'No remediation provided');

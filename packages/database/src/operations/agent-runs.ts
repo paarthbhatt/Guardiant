@@ -1,4 +1,4 @@
-import { eq, and, desc, asc } from 'drizzle-orm';
+import { eq, and, asc, sql } from 'drizzle-orm';
 import type { Database } from '../connection.js';
 import { agentRuns, type AgentRun, type NewAgentRun } from '../schema/index.js';
 import { generateId } from '@guardiant/shared';
@@ -22,6 +22,10 @@ export async function createAgentRun(
     agentId: data.agentId,
     status: 'pending',
   }).returning();
+
+  if (!run) {
+    throw new Error('Failed to create agent run');
+  }
 
   return run;
 }
@@ -197,5 +201,15 @@ export async function getAgentRunStats(
     .from(agentRuns)
     .where(eq(agentRuns.scanId, scanId));
 
-  return stats;
+  return stats ?? {
+    total: 0,
+    pending: 0,
+    running: 0,
+    completed: 0,
+    failed: 0,
+    skipped: 0,
+    totalFindings: 0,
+    totalTokens: 0,
+    totalDuration: 0,
+  };
 }

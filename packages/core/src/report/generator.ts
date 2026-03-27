@@ -15,12 +15,13 @@ import type {
 	PriorityItem,
 	AgentResult,
 	AgentId,
+	Severity,
+	OWASPCategory
 } from '@guardiant/shared';
-import { OWASP_CATEGORIES, SEVERITY_LEVELS, type Severity, type OWASPCategory } from '@guardiant/shared';
-import { generateExecutiveReport } from './templates/executive.js';
-import { generateDeveloperReport } from './templates/developer.js';
-import { generateSecurityReport } from './templates/security.js';
+import { OWASP_CATEGORIES } from '@guardiant/shared';
 import { formatAsJson, formatAsMarkdown, formatAsHtml } from './formats/index.js';
+
+const SEVERITY_ORDER: Severity[] = ['critical', 'high', 'medium', 'low', 'info'];
 
 export class ReportGenerator {
 	private options: ReportOptions;
@@ -200,11 +201,12 @@ export class ReportGenerator {
 	 */
 	private assessRisk(stats: ExecutiveSummary['statistics'], findings: Finding[]): RiskAssessment {
 		let score = 0;
-		let level: RiskAssessment['level'] = 'low';
+		let level: RiskAssessment['level'] = findings.length === 0 ? 'info' : 'low';
 
 		score += stats.criticalCount * 3;
 		score += stats.highCount * 2;
 		score += stats.mediumCount * 1;
+		score += stats.lowCount * 0.5;
 		score = Math.min(10, score);
 
 		if (stats.criticalCount > 0 || score >= 8) {
@@ -302,6 +304,8 @@ export class ReportGenerator {
 				return 'Within 1 month';
 			case 'low':
 				return 'Within 3 months';
+			case 'info':
+				return 'No immediate action required';
 		}
 	}
 
@@ -349,9 +353,8 @@ export class ReportGenerator {
 	 * Get top vulnerabilities
 	 */
 	private getTopVulnerabilities(findings: Finding[]): Finding[] {
-		const severityOrder: Severity[] = ['critical', 'high', 'medium', 'low', 'info'];
 		return [...findings]
-			.sort((a, b) => severityOrder.indexOf(a.severity) - severityOrder.indexOf(b.severity))
+			.sort((a, b) => SEVERITY_ORDER.indexOf(a.severity) - SEVERITY_ORDER.indexOf(b.severity))
 			.slice(0, 5);
 	}
 
@@ -368,7 +371,8 @@ export class ReportGenerator {
 		};
 
 		for (const finding of findings) {
-			grouped[finding.severity].push(finding);
+			const arr = grouped[finding.severity];
+			if (arr) arr.push(finding);
 		}
 
 		return grouped;
@@ -384,7 +388,7 @@ export class ReportGenerator {
 			if (!grouped[finding.category]) {
 				grouped[finding.category] = [];
 			}
-			grouped[finding.category].push(finding);
+			grouped[finding.category]!.push(finding);
 		}
 
 		return grouped;
@@ -408,8 +412,7 @@ export class ReportGenerator {
 
 		for (const [path, fileFindings] of fileMap) {
 			const severities = fileFindings.map(f => f.severity);
-			const severityOrder: Severity[] = ['critical', 'high', 'medium', 'low', 'info'];
-			const highestSeverity = severityOrder.find(s => severities.includes(s)) ?? 'info';
+			const highestSeverity = SEVERITY_ORDER.find(s => severities.includes(s)) ?? 'info';
 
 			affectedFiles.push({
 				path,
@@ -438,8 +441,7 @@ export class ReportGenerator {
 			}))
 			.sort((a, b) => {
 				// Sort by severity first
-				const severityOrder: Severity[] = ['critical', 'high', 'medium', 'low', 'info'];
-				const severityDiff = severityOrder.indexOf(a.finding.severity) - severityOrder.indexOf(b.finding.severity);
+				const severityDiff = SEVERITY_ORDER.indexOf(a.finding.severity) - SEVERITY_ORDER.indexOf(b.finding.severity);
 				if (severityDiff !== 0) return severityDiff;
 
 				// Then by effort
@@ -474,7 +476,7 @@ export class ReportGenerator {
 	 * Get impact description
 	 */
 	private getImpactDescription(finding: Finding): string {
-		const category = OWASP_CATEGORIES[finding.category as OWASPCategory];
+		const category = OWASP_CATEGORIES[finding.category];
 		return category?.description ?? 'Security vulnerability';
 	}
 
@@ -507,8 +509,7 @@ export class ReportGenerator {
 					f.description.includes(endpoint)
 				);
 				const severities = relatedFindings.map(f => f.severity);
-				const severityOrder: Severity[] = ['critical', 'high', 'medium', 'low', 'info'];
-				const highestSeverity = severityOrder.find(s => severities.includes(s)) ?? 'info';
+				const highestSeverity = SEVERITY_ORDER.find(s => severities.includes(s)) ?? 'info';
 
 				entryPoints.push({
 					id: `ep_${endpoint.replace(/[^a-z0-9]/gi, '_')}`,
@@ -614,8 +615,7 @@ export class ReportGenerator {
 
 		for (const [category, categoryFindings] of Object.entries(categories)) {
 			const severities = categoryFindings.map(f => f.severity);
-			const severityOrder: Severity[] = ['critical', 'high', 'medium', 'low', 'info'];
-			const highestSeverity = severityOrder.find(s => severities.includes(s)) ?? 'info';
+			const highestSeverity = SEVERITY_ORDER.find(s => severities.includes(s)) ?? 'info';
 
 			const categoryInfo = OWASP_CATEGORIES[category as OWASPCategory];
 
@@ -628,7 +628,7 @@ export class ReportGenerator {
 		}
 
 		return riskAreas.sort(
-			(a, b) => severityOrder.indexOf(a.severity) - severityOrder.indexOf(b.severity)
+			(a, b) => SEVERITY_ORDER.indexOf(a.severity) - SEVERITY_ORDER.indexOf(b.severity)
 		);
 	}
 

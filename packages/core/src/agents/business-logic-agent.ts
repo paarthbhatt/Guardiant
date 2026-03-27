@@ -1,4 +1,5 @@
-import { AbstractAgent, createFinding } from './base.js';
+import { AbstractAgent } from './base.js';
+import { createFinding } from './types.js';
 import type { AgentContext, AgentResult, Finding } from '@guardiant/shared';
 import { OWASP_CATEGORIES } from '@guardiant/shared';
 
@@ -107,7 +108,7 @@ Look for:
 6. Order/cart endpoints - test quantity manipulation`;
   }
 
-  async parseResponse(response: string, context: AgentContext): Promise<Finding[]> {
+  async parseResponse(_response: string, _context: AgentContext): Promise<Finding[]> {
     return [];
   }
 

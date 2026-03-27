@@ -4,8 +4,8 @@
 
 import type { AgentId } from '@guardiant/shared';
 import type { ScanJobData, AgentJobData } from '@guardiant/queue';
-import { MemoryQueue, type MemoryQueueConfig } from '@guardiant/queue';
-import { AGENT_EXECUTION_ORDER } from '../config/constants.js';
+import { MemoryQueue } from '@guardiant/queue';
+import { AGENT_EXECUTION_ORDER } from './constants.js';
 
 /**
  * Job priority
@@ -51,14 +51,19 @@ export class Scheduler {
   private scanQueue: MemoryQueue<ScanJobData>;
   private agentQueue: MemoryQueue<AgentJobData>;
   private jobs: Map<string, ScheduledJob> = new Map();
-  private options: Required<SchedulerOptions>;
 
   constructor(options: SchedulerOptions = {}) {
-    this.options = { ...DEFAULT_OPTIONS, ...options };
+    const maxConcurrency = options.maxConcurrency ?? DEFAULT_OPTIONS.maxConcurrency;
 
     // Create queues
-    this.scanQueue = new MemoryQueue<ScanJobData, void>({ name: 'scans' });
-    this.agentQueue = new MemoryQueue<AgentJobData, void>({ name: 'agents' });
+    this.scanQueue = new MemoryQueue<ScanJobData, void>({
+      name: 'scans',
+      concurrency: maxConcurrency
+    });
+    this.agentQueue = new MemoryQueue<AgentJobData, void>({
+      name: 'agents',
+      concurrency: maxConcurrency
+    });
 
     // Set up event handlers
     this.setupQueueHandlers();
@@ -180,7 +185,7 @@ export class Scheduler {
 
     // Phase 2: Schedule all other agents
     // Note: In reality, these should wait for recon to complete
-    const parallelAgents = AGENT_EXECUTION_ORDER[1];
+    const parallelAgents = AGENT_EXECUTION_ORDER[1] || [];
     for (const agentId of parallelAgents) {
       const jobId = await this.scheduleAgent(
         { scanId, agentId, target },

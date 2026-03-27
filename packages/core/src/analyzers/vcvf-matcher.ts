@@ -40,7 +40,17 @@ export class VCVFMatcher {
   ): VCVFFingerprint | null {
     // Check file pattern first
     const fileMatches = pattern.filePatterns.some(fp => {
-      const regex = new RegExp(fp.replace(/\*\*/g, '(.*/)?').replace(/\*/g, '[^/]*'));
+      // Convert glob pattern to regex
+      // Handle **/ as a unit to properly match zero or more directories
+      let regexPattern = fp
+        .replace(/\*\*\//g, '___GLOBSTAR___') // Replace **/ as a unit first
+        .replace(/\*/g, '___STAR___')         // Replace remaining * 
+        .replace(/\./g, '\\.')                 // Escape literal dots
+        .replace(/\{([^}]+)\}/g, (_, alternatives) => `(${alternatives.replace(/,/g, '|')})`) // Brace expansion
+        .replace(/___GLOBSTAR___/g, '(?:.*/)?') // **/ becomes optional "anything ending in slash"
+        .replace(/___STAR___/g, '[^/]*');       // * becomes "zero or more non-slash"
+      
+      const regex = new RegExp(`^${regexPattern}$`);
       return regex.test(filePath);
     });
 

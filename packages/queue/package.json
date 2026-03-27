@@ -1,7 +1,29 @@
 {
   "name": "@guardiant/queue",
-  "version": "0.1.0",
-  "private": true,
+  "version": "0.2.0",
+  "description": "Job queue system for Guardiant security platform with in-memory and BullMQ backends",
+  "keywords": [
+    "security",
+    "queue",
+    "bullmq",
+    "job",
+    "background"
+  ],
+  "author": "Guardiant Team",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/guardiant/guardiant.git",
+    "directory": "packages/queue"
+  },
+  "homepage": "https://github.com/guardiant/guardiant#readme",
+  "bugs": {
+    "url": "https://github.com/guardiant/guardiant/issues"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
+  },
   "type": "module",
   "exports": {
     ".": {
@@ -11,6 +33,9 @@
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",

@@ -37,11 +37,11 @@ export interface MemoryQueueConfig {
  * In-memory queue event handlers
  */
 export interface MemoryQueueEvents<T> {
-  onWaiting?: (job: MemoryJob<T>) => void;
-  onActive?: (job: MemoryJob<T>) => void;
-  onCompleted?: (job: MemoryJob<T>, result: unknown) => void;
-  onFailed?: (job: MemoryJob<T>, error: Error) => void;
-  onProgress?: (job: MemoryJob<T>, progress: number) => void;
+  waiting?: (job: MemoryJob<T>) => void;
+  active?: (job: MemoryJob<T>) => void;
+  completed?: (job: MemoryJob<T>, result: any) => void;
+  failed?: (job: MemoryJob<T>, error: Error) => void;
+  progress?: (job: MemoryJob<T>, progress: number) => void;
 }
 
 /**
@@ -95,7 +95,7 @@ export class MemoryQueue<T = unknown, R = unknown> {
     this.jobs.set(job.id, job);
     this.waiting.push(job.id);
 
-    this.events.onWaiting?.(job);
+    this.events.waiting?.(job);
 
     // Start processing if not already running
     if (!this.running) {
@@ -161,7 +161,7 @@ export class MemoryQueue<T = unknown, R = unknown> {
         this.active.push(jobId);
         job.status = 'running';
         job.startedAt = new Date();
-        this.events.onActive?.(job);
+        this.events.active?.(job);
 
         // Run processor
         this.processJob(job);
@@ -182,7 +182,7 @@ export class MemoryQueue<T = unknown, R = unknown> {
     if (!processor) {
       job.status = 'failed';
       job.error = `No processor for job type ${job.type}`;
-      this.events.onFailed?.(job, new Error(job.error));
+      this.events.failed?.(job, new Error(job.error));
       this.active = this.active.filter(id => id !== job.id);
       return;
     }
@@ -199,14 +199,14 @@ export class MemoryQueue<T = unknown, R = unknown> {
       job.status = 'completed';
       job.completedAt = new Date();
       job.result = result;
-      this.events.onCompleted?.(job, result);
+      this.events.completed?.(job, result);
     } catch (error) {
       job.attempts++;
 
       if (job.attempts >= job.maxAttempts) {
         job.status = 'failed';
         job.error = error instanceof Error ? error.message : 'Unknown error';
-        this.events.onFailed?.(job, error instanceof Error ? error : new Error('Unknown error'));
+        this.events.failed?.(job, error instanceof Error ? error : new Error('Unknown error'));
       } else {
         // Retry
         job.status = 'pending';
@@ -220,8 +220,8 @@ export class MemoryQueue<T = unknown, R = unknown> {
   /**
    * Set event handlers
    */
-  on<E extends keyof MemoryQueueEvents<T>>(event: E, handler: NonNullable<MemoryQueueEvents<T>[E]>): void {
-    this.events[event] = handler as never;
+  on<E extends keyof MemoryQueueEvents<T>>(event: E, handler: MemoryQueueEvents<T>[E]): void {
+    this.events[event] = handler;
   }
 
   /**

@@ -120,6 +120,12 @@ export const VCVF_PATTERNS: VCVFPatternDefinition[] = [
         weight: 0.95,
         isVulnerability: true,
       },
+      {
+        pattern: /(?:if\s*\(\s*req\.(?:session\.(?:userId|user)|user(?:Id)?)\s*\))/gi,
+        description: 'Simple authentication check without authorization',
+        weight: 0.9,
+        isVulnerability: true,
+      },
     ],
     predictedVulnerabilities: [
       { type: 'privilege_escalation', probability: 0.85, reason: 'Auth check without authz check allows horizontal/vertical escalation', owaspCategory: 'A01_BROKEN_ACCESS_CONTROL' },

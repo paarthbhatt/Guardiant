@@ -57,26 +57,15 @@ Provide your analysis in a structured format.`;
  * Perform iterative reasoning with the LLM
  */
 export async function iterativeReasoning(
-  llm: LLMClient,
-  task: string,
-  context: string,
-  maxIterations: number = 5
+  _llm: LLMClient,
+  _task: string,
+  _context: string,
+  _maxIterations: number = 5
 ): Promise<{ steps: ReasoningStep[]; conclusion: string }> {
   const steps: ReasoningStep[] = [];
 
-  for (let i = 0; i < maxIterations; i++) {
-    const prompt = buildReasoningPrompt(task, context, steps);
-
-    // In a real implementation, this would call the LLM
-    // For now, return placeholder
-
-    // Add step if we got one
-    // steps.push(newStep);
-
-    // Check if we've reached a conclusion
-    // if (newStep.type === 'conclusion') break;
-  }
-
+  // In a real implementation, this would call the LLM iteratively
+  
   return {
     steps,
     conclusion: 'Analysis complete',
@@ -94,9 +83,6 @@ export async function findCVCChains(
     return [];
   }
 
-  // Group findings by data flow
-  // Look for chains where V1 enables V2
-
   const chains: VulnerabilityChain[] = [];
 
   // For each pair of vulnerabilities, check if they can be chained
@@ -104,17 +90,20 @@ export async function findCVCChains(
     for (let j = 0; j < findings.length; j++) {
       if (i === j) continue;
 
-      const canChain = await canChainVulnerabilities(llm, findings[i], findings[j]);
+      const v1 = findings[i]!;
+      const v2 = findings[j]!;
+
+      const canChain = await canChainVulnerabilities(llm, v1, v2);
       if (canChain) {
         chains.push({
-          id: `chain_${findings[i].id}_${findings[j].id}`,
-          findings: [findings[i], findings[j]],
-          compoundSeverity: getCompoundSeverity(findings[i].severity, findings[j].severity),
-          compoundCvssScore: Math.min(findings[i].cvssScore + findings[j].cvssScore * 0.5, 10),
-          exploitPath: `Exploit ${findings[i].title} to enable ${findings[j].title}`,
+          id: `chain_${v1.id}_${v2.id}`,
+          findings: [v1, v2],
+          compoundSeverity: getCompoundSeverity(v1.severity, v2.severity),
+          compoundCvssScore: Math.min(v1.cvssScore + v2.cvssScore * 0.5, 10),
+          exploitPath: `Exploit ${v1.title} to enable ${v2.title}`,
           attackSteps: [
-            { order: 1, findingId: findings[i].id, action: 'Exploit first vulnerability', result: 'Gain initial access' },
-            { order: 2, findingId: findings[j].id, action: 'Exploit second vulnerability', result: 'Achieve compound impact' },
+            { order: 1, findingId: v1.id, action: 'Exploit first vulnerability', result: 'Gain initial access' },
+            { order: 2, findingId: v2.id, action: 'Exploit second vulnerability', result: 'Achieve compound impact' },
           ],
         });
       }
@@ -128,16 +117,10 @@ export async function findCVCChains(
  * Check if two vulnerabilities can be chained
  */
 async function canChainVulnerabilities(
-  llm: LLMClient,
+  _llm: LLMClient,
   v1: Finding,
   v2: Finding
 ): Promise<boolean> {
-  // Heuristic: Check if V1's impact enables V2's exploitation
-  // For example:
-  // - IDOR + XSS can chain
-  // - SQLi + Auth bypass can chain
-  // - Secret exposure + API access can chain
-
   const chainablePairs: Array<[string, string]> = [
     ['A01_BROKEN_ACCESS_CONTROL', 'A03_INJECTION'], // IDOR enables SQLi vectors
     ['A05_SECURITY_MISCONFIGURATION', 'A01_BROKEN_ACCESS_CONTROL'], // Config exposure reveals access patterns
@@ -154,26 +137,27 @@ async function canChainVulnerabilities(
 /**
  * Calculate compound severity
  */
-function getCompoundSeverity(s1: string, s2: string): 'critical' | 'high' | 'medium' | 'low' | 'info' {
+function getCompoundSeverity(s1: string, s2: string): 'critical' | 'high' | 'medium' | 'low' {
   const severities = ['critical', 'high', 'medium', 'low', 'info'];
   const i1 = severities.indexOf(s1);
   const i2 = severities.indexOf(s2);
-
-  // Compound is at least as severe as the more severe one
-  return severities[Math.min(i1, i2)] as 'critical' | 'high' | 'medium' | 'low' | 'info';
+  
+  const index = Math.min(i1 === -1 ? 4 : i1, i2 === -1 ? 4 : i2);
+  const result = severities[index];
+  
+  return (result === 'info' ? 'low' : result) as 'critical' | 'high' | 'medium' | 'low';
 }
 
 /**
  * Detect TIEF (Trust Inversion Exploit Framework)
  */
 export async function detectTIEF(
-  llm: LLMClient,
+  _llm: LLMClient,
   findings: Finding[],
-  chains: VulnerabilityChain[]
+  _chains: VulnerabilityChain[]
 ): Promise<TrustInversion[]> {
   const inversions: TrustInversion[] = [];
 
-  // Look for trust inversion patterns
   const trustInversionPatterns = [
     {
       type: 'frontend_auth_logic',
@@ -192,7 +176,6 @@ export async function detectTIEF(
     },
   ];
 
-  // Check findings for VCVF patterns indicating trust inversions
   for (const pattern of trustInversionPatterns) {
     const matchingFindings = findings.filter(f =>
       f.vcvfPattern && pattern.indicators.includes(f.vcvfPattern)
@@ -205,7 +188,7 @@ export async function detectTIEF(
         misplacedTrust: 'Client-side code',
         expectedBoundary: 'Server-side validation and authorization',
         actualBoundary: 'Client-side only checks',
-        severity: matchingFindings[0].severity,
+        severity: matchingFindings[0]!.severity,
         findingIds: matchingFindings.map(f => f.id),
       });
     }

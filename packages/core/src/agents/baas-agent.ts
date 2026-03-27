@@ -1,7 +1,8 @@
-import { AbstractAgent, createFinding } from './base.js';
-import type { AgentContext, AgentResult, Finding, ReconData } from '@guardiant/shared';
+import { AbstractAgent } from './base.js';
+import { createFinding } from './types.js';
+import type { AgentContext, AgentResult, Finding } from '@guardiant/shared';
 import { OWASP_CATEGORIES } from '@guardiant/shared';
-import { createHttpClient, type HttpResponse } from '../http/client.js';
+import { createHttpClient } from '../http/index.js';
 
 /**
  * BaaS Security Agent
@@ -117,7 +118,7 @@ Check for:
 5. Missing authentication checks`;
   }
 
-  async parseResponse(response: string, context: AgentContext): Promise<Finding[]> {
+  async parseResponse(_response: string, _context: AgentContext): Promise<Finding[]> {
     // Findings are generated directly by test methods
     return [];
   }
@@ -215,11 +216,8 @@ Check for:
       { pattern: /supabase_service_key\s*[=:]\s*['"`]([^'"`]{20,})['"`]/i, name: 'Service Key', severity: 'critical' as const },
     ];
 
-    // Patterns for anon keys (less critical but still worth noting)
-    const anonPatterns = [
-      { pattern: /supabase_anon_key\s*[=:]\s*['"`]([^'"`]{20,})['"`]/i, name: 'Anon Key', severity: 'info' as const },
-      { pattern: /NEXT_PUBLIC_SUPABASE_ANON_KEY\s*[=:]\s*['"`]([^'"`]{20,})['"`]/i, name: 'Anon Key (env)', severity: 'info' as const },
-    ];
+    // Anon-key patterns (informational only, not flagged as critical)
+    // const _anonPatterns = [...]
 
     // Firebase patterns
     const firebasePatterns = [
@@ -252,7 +250,7 @@ Check for:
       const combinedContent = jsContents.join('\n');
 
       // Check for critical patterns
-      for (const { pattern, name, severity } of criticalPatterns) {
+      for (const { pattern, name } of criticalPatterns) {
         const match = combinedContent.match(pattern);
         if (match) {
           findings.push(
@@ -362,7 +360,7 @@ const supabase = createClient(
     while ((match = scriptRegex.exec(html)) !== null) {
       const src = match[1];
       try {
-        const url = src.startsWith('http') ? src : new URL(src, baseUrl).toString();
+        const url = src!.startsWith('http') ? src! : new URL(src!, baseUrl).toString();
         urls.push(url);
       } catch {
         // Invalid URL
@@ -374,7 +372,7 @@ const supabase = createClient(
     while ((match = nextRegex.exec(html)) !== null) {
       const src = match[1];
       try {
-        const url = new URL(src, baseUrl).toString();
+        const url = new URL(src ?? '', baseUrl).toString();
         urls.push(url);
       } catch {
         // Invalid URL
@@ -389,7 +387,6 @@ const supabase = createClient(
    */
   private async checkRLSConfiguration(context: AgentContext): Promise<Finding[]> {
     const findings: Finding[] = [];
-    const baseUrl = context.target.url;
 
     // Try to detect Supabase project URL
     const supabaseUrl = await this.detectSupabaseUrl(context);
@@ -514,7 +511,7 @@ CREATE POLICY "Deny anon access" ON sensitive_table
       const response = await this.httpClient.get(context.target.url);
       const supabaseUrlMatch = response.body.match(/supabaseUrl\s*[=:]\s*['"`]([^'"`]+)['"`]/i);
       if (supabaseUrlMatch) {
-        return supabaseUrlMatch[1];
+        return supabaseUrlMatch[1] ?? null;
       }
 
       const projectRefMatch = response.body.match(/([a-z]{20})\.supabase\.co/i);
@@ -896,10 +893,7 @@ service cloud.firestore {
       const response = await this.httpClient.get(context.target.url);
 
       // Look for Firebase initialization with public config
-      const publicAccessPatterns = [
-        { pattern: /databaseURL\s*:\s*['"`]https:\/\/[^'"`]+\.firebaseio\.com['"`]/i, name: 'Public Realtime Database URL' },
-        { pattern: /storageBucket\s*:\s*['"`][^'"`]+\.appspot\.com['"`]/i, name: 'Storage bucket URL' },
-      ];
+      // Firebase config patterns omitted (informational, not flagged)
 
       const jsUrls = this.extractJavaScriptUrls(response.body, context.target.url);
       const jsContents: string[] = [response.body];

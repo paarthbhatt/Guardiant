@@ -44,7 +44,7 @@ export class LLMClient {
       { name: 'gemini', create: () => this.createGeminiProvider() },
     ];
 
-    for (const { name, create } of providerConfigs) {
+    for (const { create } of providerConfigs) {
       const provider = create();
       if (provider) {
         this.providers.push(provider);
@@ -272,13 +272,13 @@ Do not include any text outside the JSON object.`;
   private extractJSON(content: string): string {
     // Try to extract JSON from markdown code blocks
     const jsonMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/);
-    if (jsonMatch) {
+    if (jsonMatch?.[1]) {
       return jsonMatch[1].trim();
     }
 
     // Try to find JSON object directly
     const objectMatch = content.match(/\{[\s\S]*\}/);
-    if (objectMatch) {
+    if (objectMatch?.[0]) {
       return objectMatch[0];
     }
 

@@ -1,4 +1,4 @@
-import { eq, and, desc, asc, inArray, sql } from 'drizzle-orm';
+import { eq, and, desc, asc, sql } from 'drizzle-orm';
 import type { Database } from '../connection.js';
 import { findings, type Finding, type NewFinding } from '../schema/index.js';
 import { generateFindingId } from '@guardiant/shared';
@@ -19,6 +19,10 @@ export async function createFinding(
     timestamp: now,
     ...data,
   }).returning();
+
+  if (!finding) {
+    throw new Error('Failed to create finding');
+  }
 
   return finding;
 }

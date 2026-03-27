@@ -146,23 +146,13 @@ export function formatAsMarkdown(report: Report, audience: ReportAudience): stri
 /**
  * Format report as HTML
  */
-export function formatAsHtml(report: Report, audience: ReportAudience): string {
+export function formatAsHtml(report: Report, _audience: ReportAudience): string {
 	const stats = {
 		critical: report.findings.filter(f => f.severity === 'critical').length,
 		high: report.findings.filter(f => f.severity === 'high').length,
 		medium: report.findings.filter(f => f.severity === 'medium').length,
 		low: report.findings.filter(f => f.severity === 'low').length,
 		info: report.findings.filter(f => f.severity === 'info').length,
-	};
-
-	const severityColor = (sev: string): string => {
-		switch (sev) {
-			case 'critical': return '#dc2626';
-			case 'high': return '#ea580c';
-			case 'medium': return '#d97706';
-			case 'low': return '#059669';
-			default: return '#6b7280';
-		}
 	};
 
 	return `<!DOCTYPE html>

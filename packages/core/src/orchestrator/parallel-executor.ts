@@ -2,11 +2,10 @@
  * Parallel executor for running agents concurrently
  */
 
-import type { AgentId, AgentResult, AgentContext } from '@guardiant/shared';
-import type { BaseAgent } from '../agents/base.js';
-import { agentRegistry } from '../agents/registry.js';
-import { AGENT_EXECUTION_ORDER, AGENT_DEPENDENCIES } from '../config/constants.js';
+import type { AgentId, AgentResult, AgentContext, BaseAgent } from '@guardiant/shared';
 import { createLogger } from '@guardiant/shared';
+
+import { AGENT_DEPENDENCIES } from './constants.js';
 
 const logger = createLogger({ level: 'info' });
 

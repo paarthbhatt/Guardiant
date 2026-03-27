@@ -193,7 +193,7 @@ export class TIEFDetector {
     // Sort by severity and return the worst
     return inversions.sort((a, b) =>
       severityOrder.indexOf(a.severity) - severityOrder.indexOf(b.severity)
-    )[0];
+    )[0] ?? null;
   }
 
   /**

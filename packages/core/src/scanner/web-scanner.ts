@@ -1,6 +1,6 @@
 import { createHttpClient, isUrlReachable, type HttpResponse } from '../http/index.js';
 import { getPayloads, checkVulnerability } from '../payloads/index.js';
-import type { DiscoveredEndpoint, Finding } from '@guardiant/shared';
+import type { DiscoveredEndpoint, Finding, OWASPCategory } from '@guardiant/shared';
 import { createFinding } from '../agents/types.js';
 
 export interface ScannerConfig {
@@ -77,6 +77,7 @@ export class WebScanner {
     while ((match = linkRegex.exec(html)) !== null) {
       try {
         const href = match[1];
+        if (!href) continue;
         if (href.startsWith('/') || href.startsWith(url.origin)) {
           addEndpoint(href.startsWith('/') ? href : new URL(href).pathname);
         }
@@ -119,7 +120,7 @@ export class WebScanner {
       .title(`${names[check.type]} in ${check.endpoint}`)
       .description(`${names[check.type]} found at ${check.endpoint}${check.parameter ? ` in parameter '${check.parameter}'` : ''}`)
       .severity(severity[check.type] ?? 'medium')
-      .category(category[check.type] ?? 'A03_INJECTION')
+      .category((category[check.type] ?? 'A03_INJECTION') as OWASPCategory)
       .cvssScore(severity[check.type] === 'critical' ? 9.8 : 7.5)
       .confidence(0.85)
       .evidence({ payload: check.payload, response: check.response?.body?.substring(0, 500), context: { parameter: check.parameter } })

@@ -1,7 +1,8 @@
-import { AbstractAgent, createFinding } from './base.js';
-import type { AgentContext, AgentResult, Finding } from '@guardiant/shared';
+import { AbstractAgent } from './base.js';
+import { createFinding } from './types.js';
+import type { AgentContext, AgentResult, Finding, DiscoveredEndpoint } from '@guardiant/shared';
 import { OWASP_CATEGORIES } from '@guardiant/shared';
-import { createHttpClient, type HttpResponse } from '../http/client.js';
+import { createHttpClient } from '../http/index.js';
 
 /**
  * Authentication & Authorization Agent
@@ -120,7 +121,7 @@ Test for:
 6. Password reset vulnerabilities`;
   }
 
-  async parseResponse(response: string, context: AgentContext): Promise<Finding[]> {
+  async parseResponse(_response: string, _context: AgentContext): Promise<Finding[]> {
     return [];
   }
 
@@ -131,12 +132,8 @@ Test for:
     const findings: Finding[] = [];
     const baseUrl = context.target.url;
 
-    // IDOR test patterns
-    const idorPatterns = [
-      { pattern: /\/api\/\w+\/(\d+|:id|\{id\})/i, type: 'path' },
-      { pattern: /\/api\/\w+\/([a-f0-9-]{36})/i, type: 'uuid' },
-      { pattern: /user[_-]?id[=:]\s*['"]?(\d+|uuid)/i, type: 'parameter' },
-    ];
+    // IDOR test patterns (reserved for future active probing)
+    // const _idorPatterns = [ ... ]; // defined but intentionally deferred
 
     // Test common IDOR vectors
     const testIds = ['1', '2', '0', '999999', '../etc/passwd'];
@@ -231,7 +228,7 @@ app.get('/api/users/:id', auth, (req, res) => {
   /**
    * Build IDOR test URL
    */
-  private buildIdorTestUrl(baseUrl: string, endpoint: any, testId: string): string {
+  private buildIdorTestUrl(baseUrl: string, endpoint: DiscoveredEndpoint, testId: string): string {
     const url = new URL(baseUrl);
     const path = endpoint.path.replace(/:id|{id}/g, testId);
     url.pathname = path;

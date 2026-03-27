@@ -10,7 +10,7 @@ export class CVCAnalyzer {
   /**
    * Find compound vulnerability chains
    */
-  async findChains(findings: Finding[], dataFlows?: DataFlow[]): Promise<VulnerabilityChain[]> {
+  async findChains(findings: Finding[], _dataFlows?: DataFlow[]): Promise<VulnerabilityChain[]> {
     if (findings.length < 2) {
       return [];
     }
@@ -170,7 +170,7 @@ export class CVCAnalyzer {
 
     // Chains of 2 high findings compound to critical
     if (highCriticalCount === 2 && findings.length >= 2) {
-      return worstSeverity === 'high' ? 'critical' : worstSeverity;
+      return (worstSeverity === 'high' ? 'critical' : worstSeverity) as 'critical' | 'high' | 'medium' | 'low' | 'info';
     }
 
     return worstSeverity as 'critical' | 'high' | 'medium' | 'low' | 'info';
@@ -212,7 +212,7 @@ export class CVCAnalyzer {
       findingId: finding.id,
       action: `Exploit ${finding.title}`,
       result: index < findings.length - 1
-        ? `Enables exploitation of ${findings[index + 1].title}`
+        ? `Enables exploitation of ${findings[index + 1]?.title ?? 'next vulnerability'}`
         : `Achieves compound impact: ${finding.severity} severity`,
     }));
   }
@@ -224,6 +224,12 @@ export class CVCAnalyzer {
     // Findings in a chain have higher impact
     const chainMultiplier = chain.findings.length > 2 ? 1.2 : 1.1;
     return Math.min(10, finding.cvssScore * chainMultiplier);
+  }
+  /**
+   * Alias for findChains — used by integration tests and external callers
+   */
+  async analyze(findings: Finding[], dataFlows?: DataFlow[]): Promise<VulnerabilityChain[]> {
+    return this.findChains(findings, dataFlows);
   }
 }
 

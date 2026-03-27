@@ -2,7 +2,8 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { CVCAnalyzer } from '../analyzers/cvc-analyzer.js';
 import { VCVFMatcher } from '../analyzers/vcvf-matcher.js';
 import { TIEFDetector } from '../analyzers/tief-detector.js';
-import type { Finding } from '@guardiant/shared';
+import type { Finding, VCVFFingerprint } from '@guardiant/shared';
+import type { VCVFPatternType } from '@guardiant/shared';
 
 describe('CVCAnalyzer', () => {
 	let analyzer: CVCAnalyzer;
@@ -96,9 +97,9 @@ describe('VCVFMatcher', () => {
 	});
 
 	it('should calculate composite score', () => {
-		const fingerprints = [
-			{ confidence: 0.8, patternType: 'test' as const, id: '1', evidence: [], locations: [], predictedVulnerabilities: [] },
-			{ confidence: 0.6, patternType: 'test' as const, id: '2', evidence: [], locations: [], predictedVulnerabilities: [] },
+		const fingerprints: VCVFFingerprint[] = [
+			{ confidence: 0.8, patternType: 'symmetric_crud_vulnerabilities' as VCVFPatternType, id: '1', evidence: [], locations: [], predictedVulnerabilities: [] },
+			{ confidence: 0.6, patternType: 'auth_authz_conflation' as VCVFPatternType, id: '2', evidence: [], locations: [], predictedVulnerabilities: [] },
 		];
 
 		const score = matcher.calculateCompositeScore(fingerprints);
@@ -140,7 +141,7 @@ describe('TIEFDetector', () => {
 
 	it('should find weakest trust anchor', async () => {
 		const findings: Finding[] = [
-			createMockFinding('test-1', 'A07_AUTH_FAILURES', 'low'),
+			createMockFinding('test-1', 'A07_AUTH_FAILURES', 'low', 'auth_authz_conflation'),
 			createMockFinding('test-2', 'A03_INJECTION', 'critical'),
 		];
 

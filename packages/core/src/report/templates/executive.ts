@@ -1,5 +1,4 @@
-import type { ExecutiveSummary, Finding, VulnerabilityChain, TrustInversion } from '@guardiant/shared';
-import { SEVERITY_LEVELS } from '@guardiant/shared';
+import type { ExecutiveSummary } from '@guardiant/shared';
 
 /**
  * Generate executive report content
@@ -62,10 +61,10 @@ export function generateExecutiveReport(
 	lines.push('');
 	lines.push(`| Severity | Count |`);
 	lines.push(`|----------|-------|`);
-	lines.push(`| ${SEVERITY_LEVELS.critical.colored} Critical | ${summary.statistics.criticalCount} |`);
-	lines.push(`| ${SEVERITY_LEVELS.high.colored} High | ${summary.statistics.highCount} |`);
-	lines.push(`| ${SEVERITY_LEVELS.medium.colored} Medium | ${summary.statistics.mediumCount} |`);
-	lines.push(`| ${SEVERITY_LEVELS.low.colored} Low | ${summary.statistics.lowCount} |`);
+	lines.push(`| Critical | ${summary.statistics.criticalCount} |`);
+	lines.push(`| High | ${summary.statistics.highCount} |`);
+	lines.push(`| Medium | ${summary.statistics.mediumCount} |`);
+	lines.push(`| Low | ${summary.statistics.lowCount} |`);
 	lines.push('');
 	lines.push(`**Total Findings:** ${summary.statistics.totalFindings}`);
 	lines.push(`**Chained Vulnerabilities:** ${summary.statistics.chainedVulnerabilities}`);

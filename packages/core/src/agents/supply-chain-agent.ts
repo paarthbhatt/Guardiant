@@ -1,6 +1,10 @@
-import { AbstractAgent, createFinding } from './base.js';
+import { AbstractAgent } from './base.js';
+import { createFinding } from './types.js';
 import type { AgentContext, AgentResult, Finding } from '@guardiant/shared';
 import { OWASP_CATEGORIES } from '@guardiant/shared';
+import { createHttpClient } from '../http/index.js';
+
+type HttpClient = ReturnType<typeof createHttpClient>;
 
 /**
  * Supply Chain Security Agent
@@ -22,6 +26,8 @@ export class SupplyChainAgent extends AbstractAgent {
   ];
   readonly priority = 'medium' as const;
 
+  private httpClient: HttpClient;
+
   // Common hallucinated package patterns (examples from research)
   private readonly knownHallucinatedPackages = [
     // These are examples of packages that don't exist or are typosquats
@@ -30,6 +36,11 @@ export class SupplyChainAgent extends AbstractAgent {
     'express-route-cache',
     'mongodb-query-parser',
   ];
+
+  constructor() {
+    super();
+    this.httpClient = createHttpClient(30000);
+  }
 
   async execute(context: AgentContext): Promise<AgentResult> {
     const startTime = Date.now();
@@ -106,7 +117,7 @@ Check for:
 5. Unmaintained packages`;
   }
 
-  async parseResponse(response: string, context: AgentContext): Promise<Finding[]> {
+  async parseResponse(_response: string, _context: AgentContext): Promise<Finding[]> {
     return [];
   }
 
@@ -219,7 +230,7 @@ Check for:
   /**
    * Check for hallucinated packages
    */
-  private async checkHallucinatedPackages(context: AgentContext, packageFiles: string[]): Promise<Finding[]> {
+  private async checkHallucinatedPackages(context: AgentContext, _packageFiles: string[]): Promise<Finding[]> {
     const findings: Finding[] = [];
 
     // Check if packages actually exist
@@ -269,7 +280,7 @@ Check for:
   /**
    * Check for known CVEs
    */
-  private async checkKnownCVEs(context: AgentContext, packageFiles: string[]): Promise<Finding[]> {
+  private async checkKnownCVEs(_context: AgentContext, _packageFiles: string[]): Promise<Finding[]> {
     const findings: Finding[] = [];
 
     // Query OSV database or Snyk DB for known CVEs

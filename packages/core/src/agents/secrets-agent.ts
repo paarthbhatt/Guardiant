@@ -1,7 +1,8 @@
-import { AbstractAgent, createFinding } from './base.js';
+import { AbstractAgent } from './base.js';
+import { createFinding } from './types.js';
 import type { AgentContext, AgentResult, Finding } from '@guardiant/shared';
 import { OWASP_CATEGORIES } from '@guardiant/shared';
-import { createHttpClient, type HttpResponse } from '../http/client.js';
+import { createHttpClient } from '../http/index.js';
 
 /**
  * Secrets Detection Agent
@@ -143,7 +144,7 @@ Check for:
 6. Private keys`;
   }
 
-  async parseResponse(response: string, context: AgentContext): Promise<Finding[]> {
+  async parseResponse(_response: string, _context: AgentContext): Promise<Finding[]> {
     return [];
   }
 
@@ -265,6 +266,7 @@ const response = await fetch('/api/data'); // Proxy to backend
 
     while ((match = scriptRegex.exec(html)) !== null) {
       const src = match[1];
+      if (!src) continue;
       try {
         const url = src.startsWith('http') ? src : new URL(src, baseUrl).toString();
         urls.push(url);
@@ -277,6 +279,7 @@ const response = await fetch('/api/data'); // Proxy to backend
     const nextRegex = /["'](_next\/static\/chunks\/[^"']+\.js)["']/gi;
     while ((match = nextRegex.exec(html)) !== null) {
       const src = match[1];
+      if (!src) continue;
       try {
         const url = new URL(src, baseUrl).toString();
         urls.push(url);
@@ -560,6 +563,7 @@ location ~ /\\.env {
       let match;
       while ((match = inlineScriptRegex.exec(html)) !== null) {
         const scriptContent = match[1];
+        if (!scriptContent) continue;
 
         for (const { pattern, name, severity } of this.secretPatterns) {
           const secretMatches = scriptContent.matchAll(pattern);
@@ -577,6 +581,7 @@ location ~ /\\.env {
       const dataAttrRegex = /data-[\w-]+\s*=\s*["']([^"']+)["']/gi;
       while ((match = dataAttrRegex.exec(html)) !== null) {
         const value = match[1];
+        if (!value) continue;
 
         for (const { pattern, name, severity } of this.secretPatterns) {
           if (pattern.test(value)) {
@@ -593,6 +598,7 @@ location ~ /\\.env {
       const hiddenInputRegex = /<input[^>]+type=["']hidden["'][^>]+value=["']([^"']+)["']/gi;
       while ((match = hiddenInputRegex.exec(html)) !== null) {
         const value = match[1];
+        if (!value) continue;
 
         for (const { pattern, name, severity } of this.secretPatterns) {
           if (pattern.test(value)) {

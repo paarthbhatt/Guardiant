@@ -1,5 +1,5 @@
-import type { DeveloperReport, Finding, OWASPCategory, Severity } from '@guardiant/shared';
-import { OWASP_CATEGORIES, SEVERITY_LEVELS } from '@guardiant/shared';
+import type { DeveloperReport, OWASPCategory, Finding, Severity } from '@guardiant/shared';
+import { OWASP_CATEGORIES } from '@guardiant/shared';
 
 /**
  * Generate developer report content
@@ -107,6 +107,7 @@ export function generateDeveloperReport(report: DeveloperReport): string {
 
 		for (let i = 0; i < Math.min(10, report.priorityQueue.length); i++) {
 			const item = report.priorityQueue[i];
+			if (!item) continue;
 			lines.push(`### ${i + 1}. ${item.finding.title}`);
 			lines.push('');
 			lines.push(`**Severity:** ${item.finding.severity}`);

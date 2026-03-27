@@ -1,5 +1,5 @@
-import type { SecurityReport, Finding, VulnerabilityChain, VCVFFingerprint, TrustInversion } from '@guardiant/shared';
-import { SEVERITY_LEVELS, OWASP_CATEGORIES, type OWASPCategory } from '@guardiant/shared';
+import type { SecurityReport } from '@guardiant/shared';
+import { OWASP_CATEGORIES, type OWASPCategory } from '@guardiant/shared';
 
 /**
  * Generate security report content
