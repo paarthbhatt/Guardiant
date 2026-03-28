@@ -24,7 +24,10 @@ const config = new Conf<Config>({
 });
 
 export const configCommand = new Command('config')
-  .description('Manage Guardiant configuration')
+  .description('Manage Guardiant configuration');
+
+// Add subcommands
+configCommand
   .command('set <key> <value>')
   .description('Set a configuration value')
   .action((key: string, value: string) => {
@@ -53,7 +56,6 @@ export const configCommand = new Command('config')
     console.log(chalk.green(`Set ${key} = ${value}`));
   });
 
-// Add subcommands
 configCommand
   .command('get <key>')
   .description('Get a configuration value')

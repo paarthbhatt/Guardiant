@@ -6,7 +6,8 @@ import path from 'path';
 const execAsync = promisify(exec);
 
 // Path to the compiled CLI entrypoint
-const CLI_PATH = path.resolve(__dirname, '../../../../apps/cli/dist/index.js');
+// From src/__tests__/e2e/ in source, go to dist/index.js
+const CLI_PATH = path.resolve(__dirname, '../../../dist/index.js');
 
 describe('CLI E2E', () => {
   describe('Help and Version', () => {
