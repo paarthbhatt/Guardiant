@@ -8,7 +8,7 @@ export const ScanArgSchema = z.object({
   target: z
     .string()
     .min(1, 'Target cannot be empty')
-    .refine((v) => {
+    .refine((v: string) => {
       // Accept URLs or file-system paths (relative or absolute)
       try {
         new URL(v);
@@ -26,7 +26,7 @@ export const ScanArgSchema = z.object({
   agents: z
     .string()
     .default('all')
-    .transform((v) => v.split(',').map((s) => s.trim()))
+    .transform((v: string) => v.split(',').map((s: string) => s.trim()))
     .pipe(
       z.array(
         z.enum(['all', 'recon', 'baas', 'secrets', 'auth', 'injection', 'supply_chain', 'business_logic', 'race_condition'])
@@ -65,7 +65,7 @@ export function parseScanArgs(rawArgs: Record<string, unknown>): ScanArgs {
   const result = ScanArgSchema.safeParse(rawArgs);
   if (!result.success) {
     const issues = result.error.issues
-      .map((i) => `  • ${i.path.join('.')}: ${i.message}`)
+      .map((i: { path: (string | number)[]; message: string }) => `  • ${i.path.join('.')}: ${i.message}`)
       .join('\n');
     throw new Error(`Invalid scan arguments:\n${issues}`);
   }
