@@ -1,13 +1,25 @@
 import { PostHog } from 'posthog-node';
 
-const posthog = new PostHog(
-  process.env.POSTHOG_API_KEY || '',
-  { 
-    host: process.env.POSTHOG_HOST || 'https://app.posthog.com',
-    flushAt: 20,
-    flushInterval: 10000
+let posthog: PostHog | null = null;
+
+function getPostHog(): PostHog | null {
+  if (!process.env.POSTHOG_API_KEY) {
+    return null;
   }
-);
+  
+  if (!posthog) {
+    posthog = new PostHog(
+      process.env.POSTHOG_API_KEY,
+      { 
+        host: process.env.POSTHOG_HOST || 'https://app.posthog.com',
+        flushAt: 20,
+        flushInterval: 10000
+      }
+    );
+  }
+  
+  return posthog;
+}
 
 export interface ScanEvent {
   target: string;
@@ -31,15 +43,14 @@ export interface FeatureEvent {
 }
 
 export class Analytics {
-  private static enabled = !!process.env.POSTHOG_API_KEY;
-
   /**
    * Track when CLI is first installed
    */
   static trackCLIInstalled(userId?: string) {
-    if (!this.enabled) return;
+    const ph = getPostHog();
+    if (!ph) return;
 
-    posthog.capture({
+    ph.capture({
       distinctId: userId || this.getAnonymousId(),
       event: 'cli_installed',
       properties: {
@@ -55,9 +66,10 @@ export class Analytics {
    * Track when a scan starts
    */
   static trackScanStarted(options: ScanEvent) {
-    if (!this.enabled) return;
+    const ph = getPostHog();
+    if (!ph) return;
 
-    posthog.capture({
+    ph.capture({
       distinctId: options.userId || this.getAnonymousId(),
       event: 'scan_started',
       properties: {
@@ -73,9 +85,10 @@ export class Analytics {
    * Track when a scan completes
    */
   static trackScanCompleted(options: ScanCompletedEvent) {
-    if (!this.enabled) return;
+    const ph = getPostHog();
+    if (!ph) return;
 
-    posthog.capture({
+    ph.capture({
       distinctId: options.userId || this.getAnonymousId(),
       event: 'scan_completed',
       properties: {
@@ -101,9 +114,10 @@ export class Analytics {
     error: string;
     userId?: string;
   }) {
-    if (!this.enabled) return;
+    const ph = getPostHog();
+    if (!ph) return;
 
-    posthog.capture({
+    ph.capture({
       distinctId: options.userId || this.getAnonymousId(),
       event: 'scan_error',
       properties: {
@@ -122,9 +136,10 @@ export class Analytics {
     findingsCount: number;
     userId?: string;
   }) {
-    if (!this.enabled) return;
+    const ph = getPostHog();
+    if (!ph) return;
 
-    posthog.capture({
+    ph.capture({
       distinctId: options.userId || this.getAnonymousId(),
       event: 'report_generated',
       properties: {
@@ -139,9 +154,10 @@ export class Analytics {
    * Track feature usage
    */
   static trackFeatureUsed(options: FeatureEvent) {
-    if (!this.enabled) return;
+    const ph = getPostHog();
+    if (!ph) return;
 
-    posthog.capture({
+    ph.capture({
       distinctId: options.userId || this.getAnonymousId(),
       event: 'feature_used',
       properties: {
@@ -156,10 +172,11 @@ export class Analytics {
    * Gracefully shutdown analytics (flush pending events)
    */
   static async shutdown() {
-    if (!this.enabled) return;
+    const ph = getPostHog();
+    if (!ph) return;
     
     try {
-      await posthog.shutdown();
+      await ph.shutdown();
     } catch (error) {
       console.debug('Analytics shutdown error:', error);
     }
