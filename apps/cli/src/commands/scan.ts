@@ -74,7 +74,7 @@ export const scanCommand = new Command('scan')
       // Track scan start
       Analytics.trackScanStarted({
         target: config.target,
-        agents: config.agents,
+        agents: config.agents || [],
       });
 
       // Initialize orchestrator
@@ -100,7 +100,10 @@ export const scanCommand = new Command('scan')
       // Track scan completion
       const severityCounts = results.findings.reduce(
         (acc, f) => {
-          acc[f.severity]++;
+          const severity = f.severity as 'critical' | 'high' | 'medium' | 'low';
+          if (acc[severity] !== undefined) {
+            acc[severity]++;
+          }
           return acc;
         },
         { critical: 0, high: 0, medium: 0, low: 0 } as Record<string, number>
@@ -108,7 +111,7 @@ export const scanCommand = new Command('scan')
 
       Analytics.trackScanCompleted({
         target: config.target,
-        agents: config.agents,
+        agents: config.agents || [],
         findingsCount: results.findings.length,
         duration: Math.floor(duration / 1000),
         criticalCount: severityCounts.critical,
