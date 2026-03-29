@@ -1,0 +1,92 @@
+name: Bug Report
+description: Report a bug in Guardiant
+title: "[BUG] "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug! Please fill out the sections below.
+  
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug Description
+      description: What happened?
+      placeholder: When I run `pnpm cli scan https://example.com`, I get...
+    validations:
+      required: true
+  
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to Reproduce
+      description: How can we reproduce this?
+      value: |
+        1. Run `pnpm cli scan ...`
+        2. See error
+    validations:
+      required: true
+  
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What should have happened?
+    validations:
+      required: true
+  
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual Behavior
+      description: What actually happened?
+    validations:
+      required: true
+  
+  - type: input
+    id: version
+    attributes:
+      label: Guardiant Version
+      placeholder: v0.2.0
+      description: Run `pnpm cli --version` to find this
+    validations:
+      required: true
+  
+  - type: dropdown
+    id: environment
+    attributes:
+      label: Operating System
+      options:
+        - Windows
+        - macOS
+        - Linux
+        - Other
+    validations:
+      required: true
+  
+  - type: input
+    id: node
+    attributes:
+      label: Node.js Version
+      placeholder: v20.10.0
+      description: Run `node --version`
+    validations:
+      required: true
+  
+  - type: textarea
+    id: logs
+    attributes:
+      label: Error Logs
+      description: Paste any error messages or logs
+      render: shell
+  
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Pre-submission Checklist
+      options:
+        - label: I have searched existing issues to make sure this isn't a duplicate
+          required: true
+        - label: I have provided all requested information
+          required: true

@@ -5,7 +5,7 @@ import Table from 'cli-table3';
 import { createOrchestrator } from '@guardiant/core';
 import { createDatabase } from '@guardiant/database';
 import { createScan, startScan, completeScan } from '@guardiant/database';
-import { createLogger, formatDuration, formatSeverity, formatFindingsSummary } from '@guardiant/shared';
+import { createLogger, formatDuration, formatSeverity, formatFindingsSummary, Analytics } from '@guardiant/shared';
 import type { ScanConfig, AgentId, AgentResult, Finding } from '@guardiant/shared';
 import { parseScanArgs } from '../validation/scan-args.js';
 
@@ -71,6 +71,12 @@ export const scanCommand = new Command('scan')
       spinner.text = 'Starting scan...';
       await startScan(db, scan.id);
 
+      // Track scan start
+      Analytics.trackScanStarted({
+        target: config.target,
+        agents: config.agents,
+      });
+
       // Initialize orchestrator
       const orchestrator = createOrchestrator();
 
@@ -90,6 +96,26 @@ export const scanCommand = new Command('scan')
       // Complete the scan
       const duration = Date.now() - new Date(scan.createdAt).getTime();
       await completeScan(db, scan.id, duration);
+
+      // Track scan completion
+      const severityCounts = results.findings.reduce(
+        (acc, f) => {
+          acc[f.severity]++;
+          return acc;
+        },
+        { critical: 0, high: 0, medium: 0, low: 0 } as Record<string, number>
+      );
+
+      Analytics.trackScanCompleted({
+        target: config.target,
+        agents: config.agents,
+        findingsCount: results.findings.length,
+        duration: Math.floor(duration / 1000),
+        criticalCount: severityCounts.critical,
+        highCount: severityCounts.high,
+        mediumCount: severityCounts.medium,
+        lowCount: severityCounts.low,
+      });
 
       spinner.succeed('Scan completed successfully!');
 
@@ -200,6 +226,13 @@ export const scanCommand = new Command('scan')
     } catch (error) {
       spinner.fail('Scan failed');
       logger.error('Scan error:', error);
+      
+      // Track error
+      Analytics.trackScanError({
+        target,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+
       console.error(chalk.red(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`));
       process.exit(1);
     }
