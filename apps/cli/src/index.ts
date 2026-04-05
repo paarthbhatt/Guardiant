@@ -28,13 +28,16 @@ program
   .option('--config <path>', 'Path to config file')
   .option('--no-color', 'Disable colored output');
 
-// Print banner on startup (except for help/version)
+// Get CLI arguments for banner logic
 const args = process.argv.slice(2);
+
+// Print banner on startup (except for help/version)
+// BANNER goes to stderr to avoid interfering with stdout pipelining and tests
 if (!args.includes('--help') && !args.includes('-h') && !args.includes('--version') && !args.includes('-V')) {
-  console.log(BANNER);
+  console.error(BANNER);
 }
 
-// If no command provided, show help
+// If no command provided, show help and exit
 if (process.argv.length <= 2 && !args.includes('--help') && !args.includes('-h')) {
   program.outputHelp();
   process.exit(0);
@@ -59,4 +62,3 @@ try {
     process.exit(1);
   }
 }
-

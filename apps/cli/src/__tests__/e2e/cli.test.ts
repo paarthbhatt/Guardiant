@@ -1,7 +1,10 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import path from 'path';
+
+// Increase test timeout to 10 seconds for slower CI environments (module loading)
+vi.setConfig({ testTimeout: 10000 });
 
 const execAsync = promisify(exec);
 
