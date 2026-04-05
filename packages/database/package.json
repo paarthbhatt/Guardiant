@@ -51,8 +51,10 @@
   },
   "dependencies": {
     "@guardiant/shared": "workspace:*",
-    "better-sqlite3": "^11.6.0",
     "drizzle-orm": "^0.38.3"
+  },
+  "optionalDependencies": {
+    "better-sqlite3": "^11.6.0"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.12",

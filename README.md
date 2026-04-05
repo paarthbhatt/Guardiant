@@ -1,350 +1,687 @@
-# Guardiant
+# ╔═══════════════════════════════════════════════════════════════╗
+# ║                                                               ║
+# ║   ██████╗ ██████╗ ██╗███╗   ██╗████████╗██████╗ ███████╗   ║
+# ║  ██╔═══██╗██╔══██╗██║████╗  ██║╚══██╔══╝██╔══██╗██╔════╝   ║
+# ║  ██║   ██║██████╔╝██║██╔██╗ ██║   ██║   ██████╔╝█████╗     ║
+# ║  ██║   ██║██╔══██╗██║██║╚██╗██║   ██║   ██╔══██╗██╔══╝     ║
+# ║  ╚██████╔╝██║  ██║██║██║ ╚████║   ██║   ██║  ██║███████╗   ║
+# ║   ╚═════╝ ╚═╝  ╚═╝╚═╝╚═╝  ╚═══╝   ╚═╝   ╚═╝  ╚═╝╚══════╝   ║
+# ║                                                               ║
+# ║         AI-Generated Code Security Scanner v0.2.0             ║
+# ║                                                               ║
+# ╚═══════════════════════════════════════════════════════════════╝
 
 <div align="center">
 
-**Agentic Security Platform for AI-Generated Applications**
+**THE WORLD'S FIRST SECURITY SCANNER DESIGNED SPECIFICALLY FOR AI-GENERATED CODE**
 
-[![CI](https://github.com/paarthbhatt/Guardiant/actions/workflows/ci.yml/badge.svg)](https://github.com/paarthbhatt/Guardiant/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-0.2.0-blue.svg)](https://github.com/paarthbhatt/Guardiant/releases)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Node](https://img.shields.io/badge/node-%3E%3D20.0.0-brightgreen.svg)](https://nodejs.org)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue.svg)](https://www.typescriptlang.org/)
+[![CI](https://img.shields.io/github/actions/workflow/status/paarthbhatt/Guardiant/ci.yml?branch=main)](https://github.com/paarthbhatt/Guardiant/actions)
+[![Version](https://img.shields.io/badge/version-0.2.0-blue)](https://github.com/paarthbhatt/Guardiant/releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow)](https://opensource.org/licenses/MIT)
+[![Node](https://img.shields.io/badge/node-%3E%3D20.0.0-brightgreen)](https://nodejs.org)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue)](https://www.typescriptlang.org/)
 
-[Features](#-key-features) • [Installation](#-installation) • [Quick Start](#-quick-start) • [Documentation](#-documentation) • [Architecture](#-architecture)
+**🚀 Quick Start · 📖 Documentation · 🐛 Report Bug · 💡 Request Feature**
 
 </div>
 
 ---
 
-## 🎯 Overview
+## ⚠️  **CRITICAL: Read This First!**
 
-Guardiant is an autonomous security testing platform that detects vulnerabilities unique to AI-generated codebases. Using a swarm of 8 specialized security agents powered by LLM reasoning, Guardiant identifies systematic patterns introduced by AI coding assistants that traditional security tools miss.
+### **What Makes Guardiant Different**
 
-### Why Guardiant?
+Guardiant is **NOT** another generic security scanner. It's the **first and only** tool that detects vulnerabilities **unique to AI-generated code** from Cursor, GitHub Copilot, v0.dev, and Claude Code.
 
-AI-generated ("vibe-coded") applications exhibit characteristic vulnerability patterns:
+Traditional scanners find CVEs (library vulnerabilities). Guardiant finds **systematic patterns** that AI coding assistants introduce:
 
-- **Symmetric CRUD Vulnerabilities** - Identical auth checks across all CRUD operations without granular authorization
-- **Auth/Authz Conflation** - Authentication checks without proper authorization logic
-- **Optimistic Trust Patterns** - Client-side validation with missing server-side enforcement
-- **BaaS Bypass Architecture** - Direct database access with exposed service credentials
-- **Over-Permissive Defaults** - CORS wildcards, public storage, disabled security policies
-- **Missing Negative Cases** - Empty error handlers that silently succeed
+| AI-Generated Vulnerability | Traditional Scanner? | Guardiant? |
+|--------------------------|---------------------|------------|
+| Symmetric CRUD (IDOR) | ❌ No | ✅ YES |
+| Missing RLS Policies | ❌ No | ✅ YES |
+| Client-Side Authority | ❌ No | ✅ YES |
+| Auth Bypass Chains | ❌ No | ✅ YES |
+| Over-Permissive Defaults | ❌ No | ✅ YES |
 
-Guardiant uses three specialized frameworks to detect these issues:
-
-| Framework | Purpose |
-|-----------|---------|
-| **VCVF** (Vibe Code Vulnerability Fingerprint) | Identifies AI-generated code patterns |
-| **CVC** (Compound Vulnerability Chain) | Links vulnerabilities into exploit chains |
-| **TIEF** (Trust Inversion Exploit Framework) | Detects architectural misconfigurations |
+**Research-Backed:** Built on original VCVF/CVC/TIEF frameworks - publishable research capable of discovering zero-day vulnerability classes.
 
 ---
 
-## 🚀 Key Features
+## 📋 **Table of Contents**
 
-### Security Agent Swarm
-
-8 specialized agents running in parallel with intelligent orchestration:
-
-| Agent | Focus | OWASP Coverage |
-|-------|-------|----------------|
-| **Recon** | Discovery, enumeration, tech stack detection | A05 |
-| **BaaS** | Supabase/Firebase/Appwrite security | A01, A05 |
-| **Secrets** | API keys, tokens, credential exposure | A07 |
-| **Auth** | IDOR, privilege escalation, session management | A01 |
-| **Injection** | SQLi, XSS, command injection, path traversal | A03 |
-| **Supply Chain** | Dependency vulnerabilities, package risks | A06, A08 |
-| **Business Logic** | Payment manipulation, rate limiting bypass | A04 |
-| **Race Condition** | TOCTOU, double-spend vulnerabilities | A04 |
-
-### Advanced Analysis
-
-- **Compound Vulnerability Chains** - Automatically links related findings into multi-step exploit scenarios
-- **AI Pattern Detection** - Recognizes 9 distinct VCVF patterns unique to AI-generated code
-- **Trust Boundary Analysis** - Identifies architectural flaws in client-server trust models
-- **Intelligent Prioritization** - Risk scoring based on exploitability and impact
-
-### Multi-Provider LLM Support
-
-- **Anthropic Claude 3.5 Sonnet** (Primary) - Superior security reasoning
-- **OpenRouter** (Fallback) - Multi-model aggregation
-- **Google Gemini 1.5 Pro** (Fallback) - High-speed analysis
-
-### Flexible Reporting
-
-Three specialized report formats for different audiences:
-
-- **Executive Reports** - Risk summaries, business impact, compliance status
-- **Developer Reports** - Technical details, code examples, remediation steps
-- **Security Reports** - Proof-of-concept exploits, CVSS scores, chained attacks
-
-Output formats: JSON, Markdown, HTML
-
-### Local-First Architecture
-
-- **SQLite Database** - No external database required
-- **In-Memory Queue** - Instant job processing with optional Redis upgrade
-- **Offline Capable** - Core functionality works without internet (after LLM API calls)
+- [🚀 Quick Start (3 Minutes)](#-quick-start-3-minutes)
+- [💻 OS-Specific Installation](#-os-specific-installation)
+  - [Windows](#windows-⚠️-critical)
+  - [macOS](#macos)
+  - [Linux](#linux)
+  - [Docker (All Platforms)](#docker-all-platforms)
+- [🔧 Detailed Configuration](#-detailed-configuration)
+- [🚨 Troubleshooting](#-troubleshooting)
+- [📖 Full CLI Reference](#-full-cli-reference)
+- [🎯 Example Scans](#-example-scans)
+- [🔬 Understanding Results](#-understanding-results)
+- [📚 Documentation](#-documentation)
 
 ---
 
-## 📦 Installation
+## 🚀 **Quick Start (3 Minutes)**
 
-### Prerequisites
-
-- **Node.js** ≥ 20.0.0
-- **pnpm** ≥ 9.0.0
-- At least one LLM API key (Anthropic/OpenRouter/Google)
-
-### From Source
+### **1. Prerequisites Check**
 
 ```bash
-# Clone the repository
+# Check Node.js version (need ≥ 20.0.0)
+node --version
+
+# If not installed, download: https://nodejs.org/
+```
+
+### **2. Install Guardiant**
+
+```bash
+# Clone repository
+git clone https://github.com/paarthbhatt/Guardiant.git
+cd Guardiant
+
+# Install dependencies (⚠️ see OS-specific section below for Windows!)
+pnpm install
+
+# Build the project
+pnpm build
+```
+
+### **3. Configure API Key**
+
+```bash
+# Option A: Set environment variable (recommended)
+export ANTHROPIC_API_KEY="sk-ant-..."  # or OPENROUTER_API_KEY, GOOGLE_API_KEY
+
+# Option B: Use .env file
+cp .env.example .env
+# Edit .env and add your API key
+```
+
+### **4. Run Your First Scan**
+
+```bash
+# Scan a website
+pnpm cli scan https://example.com
+
+# Scan a local directory
+pnpm cli scan ./my-app --type directory
+
+# See all options
+pnpm cli scan --help
+```
+
+**That's it!** 🎉
+
+---
+
+## 💻 **OS-Specific Installation**
+
+### **Windows ⚠️ CRITICAL**
+
+Windows requires **Visual Studio Build Tools** for native SQLite compilation. There are **two options**:
+
+#### **Option A: Install Visual Studio Build Tools** (Recommended for Development)
+
+**Step 1:** Download and install Visual Studio Build Tools
+- URL: https://visualstudio.microsoft.com/visual-cpp-build-tools/
+- During installation, select **"Desktop development with C++"** workload
+- Installation size: ~2GB, time: 15-30 minutes
+
+**Step 2:** Verify installation
+```powershell
+# Open new PowerShell/Command Prompt
+where cl
+# Should show: C:\Program Files (x86)\Microsoft Visual Studio\... \bin\Hostx64\x64\cl.exe
+```
+
+**Step 3:** Install Guardiant
+```powershell
+cd C:\path\to\Guardiant
+pnpm install
+pnpm build
+```
+
+#### **Option B: Use WSL2 (Windows Subsystem for Linux)** (Easier)
+
+WSL2 provides a native Linux environment on Windows without compilation issues.
+
+**Step 1:** Install WSL2 (if not already installed)
+```powershell
+# Run in PowerShell as Administrator
+wsl --install
+# Restart when prompted
+```
+
+**Step 2:** Update WSL to WSL2
+```powershell
+wsl --set-default-version 2
+```
+
+**Step 3:** Open Linux terminal (Ubuntu by default)
+```bash
+# Navigate to your project (adjust path)
+cd /mnt/c/Users/Parth/OneDrive/Desktop/test/Guardiant
+
+# Install and build (no issues!)
+pnpm install
+pnpm build
+```
+
+**WSL2 Advantages:**
+- ✅ No Visual Studio required
+- ✅ Full Linux compatibility
+- ✅ Faster installation
+- ✅ Production-like environment
+
+#### **Option C: Run Without Database** (Limited Functionality)
+
+If you cannot install build tools or WSL2, Guardiant will still **run scans** but **without persistence**:
+
+```bash
+pnpm install --no-optional  # Skips better-sqlite3
+# OR
+# Let pnpm install fail on better-sqlite3 but continue
+
+pnpm build  # Will build successfully
+
+# Run scan (will show warning but still works)
+pnpm cli scan https://example.com
+# ⚠️  Database unavailable - scan will proceed without persistence
+```
+
+**Limitations:**
+- ❌ Cannot save scan history
+- ❌ Cannot generate reports from previous scans
+- ❌ Cannot query database for results
+- ✅ Live scanning and output **still works**
+
+---
+
+### **macOS**
+
+macOS typically has all required tools pre-installed or easily available.
+
+#### **Prerequisites**
+
+```bash
+# Install Xcode Command Line Tools (if not already)
+xcode-select --install
+
+# Verify: should show Apple clang version
+clang --version
+```
+
+#### **Installation**
+
+```bash
+# Clone and setup
 git clone https://github.com/paarthbhatt/Guardiant.git
 cd Guardiant
 
 # Install dependencies
 pnpm install
 
-# Build all packages
+# Build
 pnpm build
 
-# Run tests (optional)
-pnpm test
+# Test
+pnpm cli scan --help
 ```
 
-### Using Docker
+**No special steps needed!** 🎉
+
+---
+
+### **Linux**
+
+Linux distributions typically have build tools pre-installed.
+
+#### **Ubuntu/Debian**
 
 ```bash
-# Pull the latest image
+# Install build tools (if not already)
+sudo apt-get update
+sudo apt-get install -y build-essential python3
+
+# Clone and setup
+git clone https://github.com/paarthbhatt/Guardiant.git
+cd Guardiant
+
+# Install dependencies
+pnpm install
+
+# Build
+pnpm build
+```
+
+#### **Fedora/RHEL/CentOS**
+
+```bash
+# Install build tools
+sudo dnf groupinstall "Development Tools"
+sudo dnf install python3
+
+# Then follow same steps as Ubuntu
+```
+
+---
+
+### **Docker (All Platforms)**
+
+Docker bypasses all OS-specific issues. **Recommended for production use.**
+
+```bash
+# Pull Docker image
 docker pull ghcr.io/paarthbhatt/guardiant:main
 
-# Run a scan
-docker run -e ANTHROPIC_API_KEY=your_key \
+# Run scan (mount local directory for context)
+docker run --rm \
+  -e ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY \
+  -v $(pwd):/workspace \
   ghcr.io/paarthbhatt/guardiant:main \
-  guardiant scan https://myapp.com
+  guardiant scan https://example.com
+
+# Or build locally
+docker build -t guardiant .
+docker run --rm -e ANTHROPIC_API_KEY=your_key guardiant scan https://example.com
 ```
 
 ---
 
-## 🏃 Quick Start
+## 🔧 **Detailed Configuration**
 
-### 1. Configure LLM Provider
+### **LLM Providers (Choose One)**
 
+Guardiant requires **at least one** LLM API key. We recommend Anthropic Claude for best results.
+
+| Provider | API Key URL | Cost | Quality | Rate Limits |
+|----------|-------------|------|---------|-------------|
+| **Anthropic** | https://console.anthropic.com | ~$0.03/scan | ⭐⭐⭐⭐⭐ | 10K req/day |
+| **OpenRouter** | https://openrouter.ai | Variable | ⭐⭐⭐⭐ | Varies |
+| **Google** | https://aistudio.google.com | ~$0.015/scan | ⭐⭐⭐⭐ | 60 req/min |
+
+#### **Configure API Key**
+
+**Method 1: Environment Variable** (Recommended)
 ```bash
-# Set your API key (at least one required)
+# Linux/macOS
 export ANTHROPIC_API_KEY="sk-ant-..."
-# or
-export OPENROUTER_API_KEY="sk-or-..."
-# or
-export GOOGLE_API_KEY="..."
+
+# Windows PowerShell
+$env:ANTHROPIC_API_KEY="sk-ant-..."
+
+# Windows Command Prompt
+set ANTHROPIC_API_KEY=sk-ant-...
 ```
 
-### 2. Run Your First Scan
-
+**Method 2: .env File** (Persistent)
 ```bash
-# Scan a web application
-pnpm cli scan https://myapp.com
-
-# Scan a specific directory
-pnpm cli scan ./my-project --type directory
-
-# Scan with specific agents only
-pnpm cli scan https://myapp.com --agents baas,auth,injection
+# Create .env file in project root
+cp .env.example .env
+# Edit .env and add:
+ANTHROPIC_API_KEY=sk-ant-...
 ```
 
-### 3. View Results
-
+**Method 3: CLI Config** (Built-in)
 ```bash
-# List all scans
-pnpm cli report list
-
-# View latest scan report
-pnpm cli report <scan-id>
-
-# Export to different formats
-pnpm cli report <scan-id> --format html --output report.html
-pnpm cli report <scan-id> --format json --audience security
-```
-
-### 4. Configure Settings
-
-```bash
-# Store your API key permanently
 pnpm cli config set anthropicApiKey sk-ant-...
-
-# Set default report format
-pnpm cli config set defaultFormat markdown
-pnpm cli config set defaultAudience developer
-
-# View all configuration
-pnpm cli config list
 ```
 
----
+### **Database Configuration**
 
-## 🏗️ Architecture
+Guardiant uses SQLite by default. No configuration needed!
 
-### System Overview
-
-```
-┌─────────────────────────────────────────────┐
-│            User Interfaces                  │
-│  ┌──────────┐  ┌──────────┐  ┌───────────┐ │
-│  │   CLI    │  │   Web    │  │  VS Code  │ │
-│  │  (Ink)   │  │Dashboard │  │ Extension │ │
-│  └──────────┘  └──────────┘  └───────────┘ │
-└─────────────────┬───────────────────────────┘
-                  │
-          ┌───────▼────────┐
-          │  Orchestrator  │  ← Parallel Agent Coordination
-          └───────┬────────┘
-                  │
-    ┌─────────────┼─────────────┐
-    │             │             │
-┌───▼───┐    ┌────▼────┐   ┌───▼────┐
-│ Recon │    │ 7 More  │   │Analysis│
-│ Agent │    │ Agents  │   │Engines │
-│       │    │ (Swarm) │   │CVC/VCVF│
-└───────┘    └─────────┘   └────┬───┘
-                                │
-                        ┌───────▼────────┐
-                        │Report Generator│
-                        │ 3 Formats x    │
-                        │ 3 Audiences    │
-                        └────────────────┘
+**Custom database location:**
+```bash
+export DATABASE_PATH="/custom/path/guardiant.db"
+# or
+pnpm cli config set databasePath /custom/path/guardiant.db
 ```
 
-### Technology Stack
-
-| Layer | Technologies |
-|-------|-------------|
-| **Runtime** | Node.js 20+, TypeScript 5.7 |
-| **Build** | Turborepo, pnpm workspaces |
-| **Database** | SQLite, Drizzle ORM |
-| **Queue** | In-memory (BullMQ optional) |
-| **CLI** | Commander.js, Ink (React for CLI) |
-| **HTTP** | axios with retry logic |
-| **Testing** | Vitest, integration tests |
-| **CI/CD** | GitHub Actions |
-
-### Project Structure
-
-```
-guardiant/
-├── apps/
-│   ├── cli/           # Command-line interface
-│   │   └── src/
-│   │       ├── commands/     # scan, report, config, version
-│   │       └── validation/   # Zod schemas
-│   └── web/           # Static web dashboard
-│
-├── packages/
-│   ├── core/          # Core security engine
-│   │   └── src/
-│   │       ├── agents/       # 8 security agents
-│   │       ├── analyzers/    # CVC, VCVF, TIEF
-│   │       ├── orchestrator/ # Parallel execution
-│   │       ├── report/       # Report generation
-│   │       ├── http/         # HTTP client + payloads
-│   │       ├── llm/          # Multi-provider LLM
-│   │       └── scanner/      # Web scanner
-│   │
-│   ├── database/      # SQLite + Drizzle ORM
-│   ├── queue/         # Job queue system
-│   └── shared/        # Types, constants, utilities
-│
-├── docs/              # Documentation
-└── .github/           # CI/CD workflows
-```
-
----
-
-## 📚 Documentation
-
-### User Guides
-
-- [Configuration Guide](docs/configuration.md) - Environment setup, LLM providers, advanced options
-- [CLI Reference](docs/cli-reference.md) - Complete command documentation
-- [Report Guide](docs/reports.md) - Understanding scan results
-
-### Developer Docs
-
-- [Architecture Overview](docs/architecture.md) - System design and component interaction
-- [Agent Development](docs/agents/README.md) - Creating custom security agents
-- [Contributing Guide](CONTRIBUTING.md) - Development setup, code style, PR process
-
-### Agent Documentation
-
-- [Recon Agent](docs/agents/recon.md) - Endpoint discovery and tech stack detection
-- [BaaS Agent](docs/agents/baas.md) - Backend-as-a-Service security testing
-- [Injection Agent](docs/agents/injection.md) - SQL, XSS, command injection testing
-- [Secrets Agent](docs/agents/secrets.md) - Credential and key exposure detection
-- [Auth Agent](docs/agents/auth.md) - Authentication and authorization testing
-- [Supply Chain Agent](docs/agents/supply-chain.md) - Dependency vulnerability scanning
-- [Business Logic Agent](docs/agents/business-logic.md) - Logic flaw detection
-- [Race Condition Agent](docs/agents/race-condition.md) - Concurrency issue detection
-
----
-
-## 🔧 Configuration
-
-### Environment Variables
-
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `ANTHROPIC_API_KEY` | Recommended | - | Claude API key (best accuracy) |
-| `OPENROUTER_API_KEY` | Optional | - | OpenRouter API key (fallback) |
-| `GOOGLE_API_KEY` | Optional | - | Gemini API key (fallback) |
-| `DATABASE_PATH` | Optional | `~/.guardiant/guardiant.db` | SQLite database location |
-| `LOG_LEVEL` | Optional | `info` | Logging level: error, warn, info, debug |
-| `REDIS_URL` | Optional | - | Redis URL for production queue |
-| `MAX_CONCURRENCY` | Optional | `4` | Maximum parallel agents (1-10) |
-| `TIMEOUT` | Optional | `600000` | Scan timeout in milliseconds |
-
-### CLI Configuration
+### **Performance Tuning**
 
 ```bash
-# Persistent configuration storage
-guardiant config set <key> <value>
+# Parallel agent execution (default: 4)
+export MAX_CONCURRENCY=8  # Increase for faster scans (requires more LLM tokens)
 
-# Available keys:
-#   anthropicApiKey, openrouterApiKey, geminiApiKey
-#   defaultFormat (json|markdown|html)
-#   defaultAudience (executive|developer|security)
-#   maxConcurrency (1-10)
-#   timeout (milliseconds)
+# Scan timeout (default: 10 minutes)
+export TIMEOUT=1800000  # 30 minutes
 
-# View configuration
-guardiant config list
-
-# Reset to defaults
-guardiant config reset
+# Logging verbosity
+export LOG_LEVEL=debug  # Options: error, warn, info, debug
 ```
 
 ---
 
-## 🧪 Development
+## 🚨 **Troubleshooting**
 
-### Running Tests
+### **"better-sqlite3" Installation Fails (Windows)**
 
+**Error:** `gyp ERR! find VS` or `Could not locate the bindings file`
+
+**Solution:**
+
+1. **Install Visual Studio Build Tools** (see Windows section above)
+   OR
+2. **Use WSL2** (recommended, see Windows section)
+   OR
+3. **Skip optional dependencies** (limited functionality):
+   ```bash
+   pnpm install --no-optional
+   # Scan will work but without database persistence
+   ```
+
+### **"PostHog not initialized" Warnings**
+
+**Cause:** `POSTHOG_API_KEY` not set (optional)
+
+**Solution:** Ignore or set the key:
 ```bash
-# Run all tests
-pnpm test
-
-# Run specific package tests
-pnpm --filter @guardiant/core test
-pnpm --filter @guardiant/cli test
-
-# Run with coverage
-pnpm test:coverage
-
-# Watch mode
-pnpm test:watch
+export POSTHOG_API_KEY=phc_your_key_here  # Get from https://app.posthog.com
 ```
 
-### Local Development
+### **"No LLM provider configured" Error**
+
+**Cause:** No API key set for any LLM provider
+
+**Solution:** Set at least one API key (see Configuration section)
+
+### **TypeScript Errors During Build**
+
+**Cause:** Node.js version mismatch or missing dependencies
+
+**Solution:**
+```bash
+# Clear cache and reinstall
+rm -rf node_modules pnpm-lock.yaml
+pnpm install
+pnpm build
+```
+
+**Note:** Requires Node.js ≥ 20.0.0
+
+### **Authentication Errors with LLM APIs**
+
+**Cause:** Invalid or expired API key
+
+**Solution:**
+1. Verify API key at provider's website
+2. Check API key has sufficient credits
+3. Check rate limits haven't been exceeded
+4. Regenerate key if compromised
+
+### **Database Locked / Permission Errors**
+
+**Cause:** Another process holding database lock or insufficient permissions
+
+**Solution:**
+```bash
+# Ensure no other Guardiant instance is running
+# Check for lock file
+rm -f guardiant.db-shm guardiant.db-wal
+
+# Or use different database path
+export DATABASE_PATH="/tmp/guardiant-$(date +%s).db"
+```
+
+---
+
+## 📖 **Full CLI Reference**
+
+```
+╔═══════════════════════════════════════════════════════════════╗
+║                     GUARDIANT CLI v0.2.0                     ║
+╚═══════════════════════════════════════════════════════════════╝
+
+Usage: guardiant <command> [options]
+
+Commands:
+  scan <target>              Run security scan on target
+  report <scan-id>           Generate/view scan report
+  config                     Manage configuration
+  version                    Show version information
+
+Global Options:
+  --verbose, -v              Enable debug logging
+  --help, -h                 Show help for command
+  --version, -V              Show version
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+SCAN COMMAND
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Usage: guardiant scan <target> [options]
+
+Arguments:
+  <target>                   URL, directory path, or repository
+
+Options:
+  -t, --type <type>          Scan type: url | directory | repository
+                            Default: url
+
+  -a, --agents <agents>      Comma-separated agents (default: all)
+                            Available: recon, baas, secrets, auth,
+                                      injection, supply_chain,
+                                      business_logic, race_condition
+
+  --skip-recon               Skip reconnaissance phase
+                            Default: false
+
+  --skip-analysis            Skip CVC/VCVF/TIEF analysis
+                            Default: false
+
+  --max-concurrency <n>      Maximum parallel agents (1-10)
+                            Default: 4
+
+  --timeout <ms>             Scan timeout in milliseconds
+                            Default: 600000 (10 minutes)
+
+  --stop-on-critical         Stop scan immediately on critical finding
+                            Default: false
+
+  -o, --output <path>        Write report to file (JSON/Markdown/HTML)
+                            Default: stdout
+
+  -f, --format <format>      Report format: json | markdown | html
+                            Default: markdown
+
+  -h, --help                 Show this help message
+
+Examples:
+  guardiant scan https://myapp.com
+  guardiant scan ./project --type directory --agents auth,injection
+  guardiant scan https://test.com --format html --output report.html
+  guardiant scan https://app.com --skip-recon --max-concurrency 8
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+REPORT COMMAND
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Usage: guardiant report <scan-id> [options]
+
+Arguments:
+  <scan-id>                 ID of scan to generate report for
+                          (from previous scan output)
+
+Options:
+  -f, --format <format>     Output format: json | markdown | html
+                            Default: markdown
+
+  -a, --audience <audience> Report audience: executive | developer | security
+                            Default: developer
+
+  -o, --output <path>       Write report to file
+                            Default: stdout
+
+  --findings-only           Show only findings without full report
+                            Default: false
+
+  -h, --help                Show this help message
+
+Examples:
+  guardiant report scan-1234567890
+  guardiant report scan-123 --format html --output report.html
+  guardiant report scan-123 --audience security --findings-only
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+CONFIG COMMAND
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Usage: guardiant config <action> [key] [value]
+
+Actions:
+  set <key> <value>         Set configuration value
+  get <key>                Get configuration value
+  unset <key>              Remove configuration value
+  list                     Show all configuration
+  reset                    Reset to defaults
+
+Configuration Keys:
+  anthropicApiKey          Anthropic API key
+  openrouterApiKey         OpenRouter API key
+  geminiApiKey             Google Gemini API key
+  defaultFormat            Default report format (json|markdown|html)
+  defaultAudience          Default report audience (executive|developer|security)
+  maxConcurrency           Max parallel agents (1-10)
+  timeout                  Default timeout (milliseconds)
+  databasePath             SQLite database location
+  logLevel                 Logging level (error|warn|info|debug)
+
+Examples:
+  guardiant config set anthropicApiKey sk-ant-...
+  guardiant config get defaultFormat
+  guardiant config list
+  guardiant config reset
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+VERSION COMMAND
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Usage: guardiant version [options]
+
+Options:
+  --full, -f              Show full version info (including dependencies)
+  --json                  Output as JSON
+  -h, --help              Show this help message
+
+Examples:
+  guardiant version
+  guardiant version --full
+  guardiant version --json
+```
+
+---
+
+## 🎯 **Example Scans**
+
+### **Scan a Production Web App**
+
+```bash
+guardiant scan https://myapp.com \
+  --agents auth,injection,baas \
+  --max-concurrency 4 \
+  --timeout 600000 \
+  --format html \
+  --output security-report.html
+```
+
+### **Scan Local Development Server**
+
+```bash
+guardiant scan http://localhost:3000 \
+  --type url \
+  --agents all \
+  --stop-on-critical
+```
+
+### **Deep Scan of Codebase**
+
+```bash
+guardiant scan ./my-project \
+  --type directory \
+  --agents recon,auth,business_logic,race_condition \
+  --max-concurrency 8 \
+  --format markdown \
+  --output detailed-report.md
+```
+
+### **Quick Reconnaissance**
+
+```bash
+guardiant scan https://target.com \
+  --agents recon \
+  --skip-analysis \
+  --timeout 120000
+```
+
+---
+
+## 🔬 **Understanding Results**
+
+### **Exit Codes**
+
+| Code | Meaning |
+|------|---------|
+| `0`  | ✅ Success - No critical or high vulnerabilities |
+| `1`  | ⚠️  High severity vulnerabilities found |
+| `2`  | 🚨 Critical vulnerabilities found |
+| `3`  | ❌ Scan failed (error) |
+
+**Use in CI/CD:**
+```bash
+guardiant scan https://myapp.com
+if [ $? -eq 0 ]; then
+  echo "✅ Security scan passed"
+else
+  echo "❌ Security scan failed - review findings"
+fi
+```
+
+### **Findings Severity**
+
+```
+CRITICAL   🔴 Immediate action required. Active exploitation likely.
+HIGH       🟡 Prioritize within current sprint.
+MEDIUM     🔵 Plan remediation in next development cycle.
+LOW        🟢 Document, fix when convenient.
+INFO       ⚪ Informational, no action needed.
+```
+
+### **VCVF Patterns Detected**
+
+Guardiant identifies 9 AI-specific vulnerability patterns:
+
+1. **Symmetric CRUD** - Missing ownership checks in UPDATE/DELETE
+2. **Auth Bypass** - Authentication without proper authorization
+3. **Client-Side Authority** - Trust misplaced in client code (TIEF)
+4. **Missing RLS** - Supabase tables without Row Level Security
+5. **Service Key Exposure** - Service role keys in client code
+6. **Over-Permissive CORS** - Wildcard CORS headers
+7. **Empty Error Handlers** - Silent failures on security checks
+8. **Parameter Pollution** - Missing validation on optional parameters
+9. **Default Credentials** - Unchanged default passwords/keys
+
+---
+
+## 📚 **Documentation**
+
+- **[Configuration Guide](docs/configuration.md)** - Complete setup instructions
+- **[CLI Reference](docs/cli-reference.md)** - Detailed command documentation
+- **[Report Guide](docs/reports.md)** - Understanding scan results and output formats
+- **[Architecture](docs/architecture.md)** - System design and agent architecture
+- **[Agent Development](docs/agents/README.md)** - Create custom security agents
+- **[Contributing](CONTRIBUTING.md)** - Development setup and PR guidelines
+
+---
+
+## 🔧 **Development**
 
 ```bash
 # Install dependencies
@@ -353,10 +690,13 @@ pnpm install
 # Build all packages
 pnpm build
 
-# Watch mode for development
+# Run tests
+pnpm test
+
+# Watch mode (auto-rebuild on changes)
 pnpm dev
 
-# Run CLI in development
+# Run CLI directly
 pnpm cli scan https://example.com
 
 # Type checking
@@ -366,136 +706,190 @@ pnpm typecheck
 pnpm lint
 ```
 
-### Testing Against Your App
+---
 
-```bash
-# Test a local development server
-pnpm cli scan http://localhost:3000
+## 🏗️ **Architecture**
 
-# Test a directory
-pnpm cli scan ./path/to/project --type directory
-
-# Test with specific agents only
-pnpm cli scan https://myapp.com --agents baas,injection,auth
-
-# Generate detailed report
-pnpm cli report <scan-id> --format html --audience security
 ```
+┌─────────────────────────────────────────────────────────────┐
+│                     Guardiant Architecture                  │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  ┌─────────────┐     ┌─────────────┐     ┌─────────────┐  │
+│  │   CLI /     │────▶│ Orchestrator│────▶│  8 Security │  │
+│  │   Web API   │     │  (Swarm)    │     │   Agents    │  │
+│  └─────────────┘     └─────────────┘     └─────────────┘  │
+│         │                   │                     │        │
+│         │              ┌────┴────┐                │        │
+│         │              │ Analysis│◀───────────────┘        │
+│         │              │ Engines │                         │
+│         │              │(VCVF/CVC│                         │
+│         │              │ /TIEF)  │                         │
+│         │              └────┬────┘                         │
+│         │                   │                               │
+│         └───────────────────┼───────────────────────────────┘
+│                               │                             │
+│                    ┌──────────▼──────────┐                │
+│                    │   SQLite Database    │                │
+│                    │  (Scans, Findings,  │                │
+│                    │   Reports, History) │                │
+│                    └─────────────────────┘                │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Key Components:**
+
+- **Orchestrator**: Parallel agent coordination with dependency resolution
+- **8 Security Agents**: Specialized scanners for different vulnerability classes
+- **VCVF/CVC/TIEF**: Research frameworks for AI-specific patterns
+- **LLM Abstraction**: Multi-provider support (Anthropic, OpenRouter, Google)
+- **Report Generator**: 3 formats × 3 audiences = 9 output variants
+- **Database Layer**: SQLite with Drizzle ORM, optional Redis queue
 
 ---
 
-## 🤝 Contributing
+## 🤝 **Contributing**
 
-We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
+We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for details.
 
-### Quick Contribution Steps
-
-1. Fork the repository
-2. Create a feature branch: `git checkout -b feature/my-feature`
-3. Make your changes and add tests
-4. Run tests: `pnpm test`
-5. Commit with conventional commits: `git commit -m "feat: add new feature"`
-6. Push and create a Pull Request
-
-### Development Setup
+### **Quick Start for Contributors**
 
 ```bash
 # Fork and clone
 git clone https://github.com/YOUR_USERNAME/Guardiant.git
 cd Guardiant
 
-# Install dependencies
-pnpm install
-
 # Create feature branch
 git checkout -b feature/my-feature
 
-# Make changes and test
+# Install and build
+pnpm install
 pnpm build
+
+# Make changes and test
 pnpm test
 
 # Commit with conventional commits
-git commit -m "feat: your feature"
+git commit -m "feat: add new security agent"
+
+# Push and open PR
 git push origin feature/my-feature
 ```
 
 ---
 
-## 📈 Roadmap
+## 📈 **Roadmap**
 
-### Current Version: v0.2.0 ✅
-
+### **v0.2.0 (Current) ✅**
 - ✅ 8 security agents with parallel execution
 - ✅ VCVF, CVC, TIEF analysis frameworks
 - ✅ Multi-provider LLM support
 - ✅ CLI with comprehensive commands
 - ✅ Three-tier reporting system
 - ✅ Complete test suite (102+ tests)
-- ✅ CI/CD pipeline
 
-### Upcoming Features
+### **v0.3.0 (Next) 🔄**
+- Enhanced BaaS coverage (Appwrite, AWS Amplify)
+- Expanded Firebase security rules testing
+- Performance optimizations (caching, incremental scans)
 
-- 🔄 **v0.3.0** - Enhanced BaaS Coverage
-  - Appwrite security testing
-  - AWS Amplify detection
-  - Expanded Firebase rule testing
+### **v0.4.0 🔄**
+- Machine learning pattern detection
+- Historical vulnerability tracking
+- Automated fix suggestions with AI
+- VS Code extension
 
-- 🔄 **v0.4.0** - Advanced Analysis
-  - Machine learning pattern detection
-  - Historical vulnerability tracking
-  - Automated fix suggestions
-
-- 🔄 **v0.5.0** - Integration & Automation
-  - VS Code extension
-  - GitHub Actions integration
-  - Continuous security monitoring
-
-- 🔄 **v1.0.0** - Production Ready
-  - SaaS offering
-  - Team collaboration features
-  - Compliance reporting (SOC 2, GDPR)
+### **v1.0.0 (Production) 🔄**
+- SaaS offering with team collaboration
+- Compliance reporting (SOC 2, GDPR)
+- Continuous security monitoring
+- Enterprise integrations
 
 ---
 
-## 📄 License
+## 📄 **License**
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+MIT License - see [LICENSE](LICENSE) file for details.
 
 ---
 
-## 🙏 Acknowledgments
+## 🙏 **Acknowledgments**
 
 - **Anthropic** - Claude 3.5 Sonnet for superior security reasoning
 - **OWASP** - Security categorization and best practices
 - **Turborepo** - Monorepo build system
 - **Drizzle ORM** - Type-safe database access
 - **Vitest** - Lightning-fast testing framework
+- **The open-source community** - For inspiration and tools
 
 ---
 
-## 📞 Support
+## 📞 **Support**
 
-- **Issues**: [GitHub Issues](https://github.com/paarthbhatt/Guardiant/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/paarthbhatt/Guardiant/discussions)
-- **Documentation**: [docs/](docs/)
+- **🐛 Bug Reports**: [GitHub Issues](https://github.com/paarthbhatt/Guardiant/issues)
+- **💡 Feature Requests**: [GitHub Discussions](https://github.com/paarthbhatt/Guardiant/discussions/categories/ideas)
+- **❓ Questions**: [GitHub Discussions](https://github.com/paarthbhatt/Guardiant/discussions)
+- **📖 Documentation**: [docs/](docs/)
+- **📧 Email**: security@guardiant.dev (private security reports only)
 
 ---
 
-## ⚡ Quick Links
+## ⚡ **Quick Links**
 
-- [Installation](#-installation)
-- [Quick Start](#-quick-start)
-- [Architecture](#-architecture)
-- [Documentation](#-documentation)
-- [Contributing](#-contributing)
-- [License](#-license)
+| Resource | Link |
+|----------|------|
+| Installation Guide | [Readme](#-installation) |
+| CLI Documentation | [docs/cli-reference.md](docs/cli-reference.md) |
+| Agent Documentation | [docs/agents/](docs/agents/) |
+| Configuration | [docs/configuration.md](docs/configuration.md) |
+| Contributing | [CONTRIBUTING.md](CONTRIBUTING.md) |
+| Research Paper (VCVF) | [docs/ZERO_DAY_POTENTIAL.md](docs/ZERO_DAY_POTENTIAL.md) |
+| Competitive Analysis | [COMPETITIVE_ANALYSIS.md](COMPETITIVE_ANALYSIS.md) |
+| Marketing Strategy | [MARKETING_PRODUCT_STRATEGY.md](MARKETING_PRODUCT_STRATEGY.md) |
 
 ---
 
 <div align="center">
 
+**🛡️ Built for the AI coding revolution**
+
+**⭐ Star us on GitHub** • **🐛 Report bugs** • **💡 Request features**
+
+[![GitHub stars](https://img.shields.io/github/stars/paarthbhatt/Guardiant?style=social)](https://github.com/paarthbhatt/Guardiant/stargazers)
+[![GitHub forks](https://img.shields.io/github/forks/paarthbhatt/Guardiant?style=social)](https://github.com/paarthbhatt/Guardiant/network)
+
 **Made with ❤️ by the Guardiant Team**
 
-[⭐ Star us on GitHub](https://github.com/paarthbhatt/Guardiant) • [🐛 Report a Bug](https://github.com/paarthbhatt/Guardiant/issues) • [💡 Request a Feature](https://github.com/paarthbhatt/Guardiant/issues)
-
 </div>
+
+---
+
+## 🔒 **Security Policy**
+
+**For security vulnerabilities in Guardiant itself**, please email: **security@guardiant.dev**
+
+Do not open GitHub issues for security vulnerabilities. This is a private disclosure channel.
+
+---
+
+## 📊 **Analytics & Privacy**
+
+Guardiant optionally sends anonymized usage statistics to PostHog to improve the product. No source code or sensitive data is transmitted.
+
+**What we track:**
+- ✅ Scan count and duration
+- ✅ Agents used
+- ✅ Severity distribution
+- ✅ Error occurrences
+- ❌ **NOT** your source code
+- ❌ **NOT** specific vulnerabilities found
+- ❌ **NOT** full URLs (sanitized)
+
+**Opt-out:** Simply don't set `POSTHOG_API_KEY` environment variable.
+
+See [.automation/POSTHOG_SETUP.md](.automation/POSTHOG_SETUP.md) for details.
+
+---
+
+**© 2026 Guardiant. MIT License.**

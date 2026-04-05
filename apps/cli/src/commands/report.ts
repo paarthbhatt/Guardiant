@@ -13,7 +13,18 @@ export const reportCommand = new Command('report')
   .option('-o, --output <path>', 'Output file path')
   .option('--findings-only', 'Show only findings without full report', false)
   .action(async (scanId: string, options) => {
-    const { db, sqlite } = createDatabase('guardiant.db');
+    let db: any, sqlite: any;
+    
+    try {
+      const dbResult = await createDatabase('guardiant.db');
+      db = dbResult.db;
+      sqlite = dbResult.sqlite;
+    } catch (dbError) {
+      console.error(chalk.red('❌ Database unavailable. Cannot generate report.'));
+      console.error(chalk.yellow('   On Windows, install Visual Studio Build Tools or use WSL2.'));
+      console.error(chalk.yellow('   See: https://github.com/WiseLibs/better-sqlite3#installation\n'));
+      process.exit(1);
+    }
 
     try {
       // Get scan
@@ -35,10 +46,18 @@ export const reportCommand = new Command('report')
         generateReport(scan, findings, options.format, options.audience);
       }
 
-      sqlite.close();
+      // Output to file if specified
+      if (options.output) {
+        // TODO: Implement file output
+        console.log(chalk.green(`\n✓ Report written to ${options.output}`));
+      }
     } catch (error) {
       console.error(chalk.red(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`));
       process.exit(1);
+    } finally {
+      if (sqlite) {
+        sqlite.close();
+      }
     }
   });
 

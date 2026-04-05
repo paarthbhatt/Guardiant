@@ -1,12 +1,80 @@
 # Changelog
 
-All notable changes to Guardiant are documented here.
+All notable changes to Guardiant will be documented in this file.
 
-This project follows [Semantic Versioning](https://semver.org) and [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
-## [0.2.0] — 2026-03-25
+## [0.2.1] - 2026-04-05 (Latest)
+
+### 🎉 Added
+
+- **Windows Compatibility Fix** - CLI now works without Visual Studio Build Tools
+  - Made `better-sqlite3` an optional dependency
+  - Implemented dynamic import with graceful fallback
+  - Scan execution works without database persistence on Windows
+  - Clear warning messages when database unavailable
+- **Enhanced CLI with ASCII Art** - Beautiful terminal experience
+  - Colorful banner on startup
+  - Enhanced version command with agent and framework details
+  - Better help text with examples
+  - JSON output option for version (`--json`)
+- **Comprehensive README Rewrite** - 500+ lines of detailed documentation
+  - OS-specific installation instructions (Windows/macOS/Linux)
+  - WSL2 setup guide for Windows users
+  - Docker support for all platforms
+  - Extensive troubleshooting section
+  - Complete CLI reference with examples
+  - VCVF patterns explained in detail
+- **PostHog Analytics Integration** - Product insights (opt-in)
+  - Track scans, findings, errors
+  - Anonymous user identification
+  - URL sanitization for privacy
+  - Setup guide: `.automation/POSTHOG_SETUP.md`
+- **Automated Metrics Collection** - Growth tracking infrastructure
+  - GitHub stats (stars, forks, watchers)
+  - NPM downloads (daily, weekly, monthly)
+  - CSV output for historical analysis
+  - Script: `.automation/scripts/collect-metrics.cjs`
+- **Marketing Infrastructure** - Complete growth toolkit
+  - Blog Post #1: "What is VCVF?" (473 lines, SEO optimized)
+  - 10+ pre-written tweets with strategy guide
+  - 5-email welcome sequence for ConvertKit
+  - 13 KPI monitoring dashboard setup
+  - GitHub issue templates
+
+### 🔧 Fixed
+
+- **better-sqlite3 compilation errors on Windows** - now optional
+- **TypeScript errors** - fixed unused variable warnings
+- **CLI build** - report command updated for async database creation
+- **Scan command** - proper error handling for missing database
+- **Exit codes** - correctly return 0/1/2 based on severity
+
+### 📚 Documentation
+
+- Complete README.md rewrite with 500+ lines
+- Added `.automation/POSTHOG_SETUP.md`
+- Updated `.env.example` with PostHog configuration
+- Created `IMPLEMENTATION_COMPLETE.md` summary
+- `docs/blog/vcvf-framework-ai-code-security.md` (473 lines)
+
+### 🚀 Infrastructure
+
+- `.automation/` directory with complete marketing setup
+  - `SETUP_GUIDE.md` - 4-week launch roadmap
+  - `IMPLEMENTATION_COMPLETE.md` - Implementation summary
+  - `MONITORING_DASHBOARD.md` - KPI tracking strategy
+  - `POSTHOG_SETUP.md` - Analytics guide
+  - `social-media/TWITTER_CONTENT.md` - 10+ tweets
+  - `content/BLOG_POST_1_VCVF.md` - Full blog post
+  - `email/EMAIL_STRATEGY.md` - Email marketing plan
+
+---
+
+## [0.2.0] - 2026-03-25
 
 ### Added
 
@@ -72,7 +140,7 @@ This project follows [Semantic Versioning](https://semver.org) and [Keep a Chang
 
 ---
 
-## [0.1.0] — 2026-03-20
+## [0.1.0] - 2026-03-20
 
 ### Added
 
@@ -121,5 +189,6 @@ This project follows [Semantic Versioning](https://semver.org) and [Keep a Chang
 - Additional BaaS platform support (Appwrite, Amplify)
 - Custom VCVF rule configuration
 
+[0.2.1]: https://github.com/guardiant/guardiant/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/guardiant/guardiant/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/guardiant/guardiant/releases/tag/v0.1.0

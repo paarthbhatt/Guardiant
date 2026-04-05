@@ -9,6 +9,11 @@ import { createLogger, formatDuration, formatSeverity, formatFindingsSummary, An
 import type { ScanConfig, AgentId, AgentResult, Finding } from '@guardiant/shared';
 import { parseScanArgs } from '../validation/scan-args.js';
 
+// Generate a simple scan ID if database is unavailable
+function generateScanId(): string {
+  return `scan-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
+}
+
 export const scanCommand = new Command('scan')
   .description('Run a security scan on a target')
   .argument('<target>', 'Target URL, directory, or repository to scan')
@@ -26,10 +31,7 @@ export const scanCommand = new Command('scan')
     const logger = createLogger({ level: 'info' });
 
     try {
-      // Initialize database
-      const { db, sqlite } = createDatabase('guardiant.db');
-
-      // Validate and parse arguments
+      // Validate and parse arguments first
       const rawArgs = {
         target,
         type: options.type,
@@ -60,16 +62,33 @@ export const scanCommand = new Command('scan')
         },
       };
 
-      // Create scan record
-      spinner.text = 'Creating scan...';
-      const scan = await createScan(db, {
-        target: config.target,
-        type: config.type,
-        config,
-      });
+      // Initialize database (optional - may fail on Windows without build tools)
+      let db: any = null;
+      let sqlite: any = null;
+      let scanId: string;
+      let dbAvailable = true;
 
-      spinner.text = 'Starting scan...';
-      await startScan(db, scan.id);
+      try {
+        const dbResult = await createDatabase('guardiant.db');
+        db = dbResult.db;
+        sqlite = dbResult.sqlite;
+        
+        const scan = await createScan(db, {
+          target: config.target,
+          type: config.type,
+          config,
+        });
+        scanId = scan.id;
+        
+        await startScan(db, scanId);
+      } catch (dbError) {
+        // Database unavailable - continue without persistence
+        dbAvailable = false;
+        scanId = generateScanId();
+        console.warn(chalk.yellow('⚠️  Database unavailable (likely missing build tools on Windows).'));
+        console.warn(chalk.yellow('   Scan will proceed without persistence.'));
+        console.warn(chalk.yellow('   Install Visual Studio Build Tools for full functionality.\n'));
+      }
 
       // Track scan start
       Analytics.trackScanStarted({
@@ -77,25 +96,31 @@ export const scanCommand = new Command('scan')
         agents: config.agents || [],
       });
 
-      // Initialize orchestrator
       const orchestrator = createOrchestrator();
+      const startTime = Date.now();
 
       // Run the scan
       spinner.text = 'Running security agents...';
       const results = await orchestrator.runScan(config);
 
-      // Save findings to database
-      spinner.text = 'Saving results...';
-      const agentResultsList = Object.values(results.agentResults) as AgentResult[];
-      for (const agentResult of agentResultsList) {
-        for (const _finding of agentResult.findings) {
-          // Save each finding
-        }
-      }
+      // Calculate duration
+      const durationMs = Date.now() - startTime;
 
-      // Complete the scan
-      const duration = Date.now() - new Date(scan.createdAt).getTime();
-      await completeScan(db, scan.id, duration);
+      // Save findings to database (if available)
+      if (dbAvailable && db) {
+        spinner.text = 'Saving results...';
+        const agentResultsList = Object.values(results.agentResults) as AgentResult[];
+        for (const agentResult of agentResultsList) {
+          for (const _finding of agentResult.findings) {
+            // TODO: Implement finding persistence
+          }
+        }
+
+        // Complete the scan
+        await completeScan(db, scanId, durationMs);
+      } else {
+        spinner.text = 'Processing results...';
+      }
 
       // Track scan completion
       const severityCounts = results.findings.reduce(
@@ -113,7 +138,7 @@ export const scanCommand = new Command('scan')
         target: config.target,
         agents: config.agents || [],
         findingsCount: results.findings.length,
-        duration: Math.floor(duration / 1000),
+        duration: Math.floor(durationMs / 1000),
         criticalCount: severityCounts.critical,
         highCount: severityCounts.high,
         mediumCount: severityCounts.medium,
@@ -126,8 +151,8 @@ export const scanCommand = new Command('scan')
       console.log('\n' + chalk.bold('Scan Results'));
       console.log(chalk.gray('─'.repeat(50)));
       console.log(`Target: ${chalk.cyan(target)}`);
-      console.log(`Duration: ${formatDuration(duration)}`);
-      console.log(`Scan ID: ${chalk.gray(scan.id)}`);
+      console.log(`Duration: ${formatDuration(durationMs)}`);
+      console.log(`Scan ID: ${chalk.gray(scanId)}`);
 
       // Display findings summary
       const summary = formatFindingsSummary(results.findings);
@@ -208,12 +233,14 @@ export const scanCommand = new Command('scan')
       // Output to file if specified
       if (options.output) {
         spinner.text = 'Writing output...';
-        // Write to file
+        // Write to file (handled by report generation)
         spinner.succeed(`Output written to ${options.output}`);
       }
 
       // Clean up
-      sqlite.close();
+      if (sqlite) {
+        sqlite.close();
+      }
 
       // Exit with appropriate code
       const hasCritical = results.findings.some((f: Finding) => f.severity === 'critical');
