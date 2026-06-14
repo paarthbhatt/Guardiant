@@ -2,7 +2,7 @@ import { Command } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
 import Table from 'cli-table3';
-import { createOrchestrator } from '@guardiant/core';
+import { createOrchestrator, registerDefaultAgents } from '@guardiant/core';
 import { createDatabase } from '@guardiant/database';
 import { createScan, startScan, completeScan } from '@guardiant/database';
 import { createLogger, formatDuration, formatSeverity, formatFindingsSummary, Analytics } from '@guardiant/shared';
@@ -95,6 +95,9 @@ export const scanCommand = new Command('scan')
         target: config.target,
         agents: config.agents || [],
       });
+
+      // Register all default agents before running scan
+      registerDefaultAgents();
 
       const orchestrator = createOrchestrator();
       const startTime = Date.now();
