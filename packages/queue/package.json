@@ -50,7 +50,7 @@
     "ioredis": "^5.4.2"
   },
   "devDependencies": {
-    "typescript": "^5.7.2",
+    "typescript": "^6.0.2",
     "vitest": "^2.1.8"
   }
 }
