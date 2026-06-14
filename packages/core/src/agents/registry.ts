@@ -1,5 +1,13 @@
 import type { BaseAgent, AgentId, AgentConfig } from '@guardiant/shared';
 import { DEFAULT_AGENT_CONFIGS } from '@guardiant/shared';
+import { ReconAgent } from './recon-agent.js';
+import { BaaSsAgent } from './baas-agent.js';
+import { SecretsAgent } from './secrets-agent.js';
+import { AuthAgent } from './auth-agent.js';
+import { InjectionAgent } from './injection-agent.js';
+import { SupplyChainAgent } from './supply-chain-agent.js';
+import { BusinessLogicAgent } from './business-logic-agent.js';
+import { RaceConditionAgent } from './race-condition-agent.js';
 
 /**
  * Agent registry for managing all available agents
@@ -121,8 +129,20 @@ export const agentRegistry = new AgentRegistry();
  * Register all default agents
  */
 export function registerDefaultAgents(): void {
-  // Agents will be imported and registered here
-  // This is called during initialization
+  const agents: BaseAgent[] = [
+    new ReconAgent(),
+    new BaaSsAgent(),
+    new SecretsAgent(),
+    new AuthAgent(),
+    new InjectionAgent(),
+    new SupplyChainAgent(),
+    new BusinessLogicAgent(),
+    new RaceConditionAgent(),
+  ];
+
+  for (const agent of agents) {
+    agentRegistry.register(agent);
+  }
 }
 
 /**
