@@ -230,7 +230,32 @@ Provide a detailed reconnaissance report including:
       const response = await this.httpClient.get(url);
       return { response };
     } catch (error) {
-      return { error: error instanceof Error ? error.message : 'Unknown error' };
+      const message = error instanceof Error ? error.message : 'Unknown error';
+
+      // Provide actionable error messages for common failure modes
+      if (message.includes('ECONNREFUSED')) {
+        return {
+          error: `Connection refused at ${url}. The target server may not be running. ` +
+            `If using a local server, ensure it is started and accessible.`,
+        };
+      }
+      if (message.includes('ECONNRESET')) {
+        return {
+          error: `Connection reset by ${url}. The target server closed the connection unexpectedly.`,
+        };
+      }
+      if (message.includes('timed out')) {
+        return {
+          error: `Request to ${url} timed out. The target may be slow or unreachable.`,
+        };
+      }
+      if (message.includes('ENOTFOUND')) {
+        return {
+          error: `DNS resolution failed for ${url}. The hostname could not be resolved.`,
+        };
+      }
+
+      return { error: `Failed to fetch target: ${message}` };
     }
   }
 
