@@ -17,7 +17,7 @@ function generateScanId(): string {
 }
 
 function generateReport(
-  results: { findings: Finding[]; chains: unknown[]; trustInversions: unknown[]; agentResults: Record<AgentId, AgentResult> },
+  results: { findings: Finding[]; chains: unknown[]; trustInversions: unknown[]; agentResults: Record<AgentId, AgentResult>; exploitNarratives?: Array<{ findingId: string; attackSteps: string[]; pocCommand: string; whyItWorks: string; trustBoundary: string; fix: string; severity: string }>; fixPatches?: Array<{ findingId: string; filePath: string; description: string; diff: string; confidence: number; autoApplicable: boolean; reasoning: string }> },
   target: string,
   durationMs: number,
   scanId: string,
@@ -31,6 +31,8 @@ function generateReport(
       findings: results.findings,
       chains: results.chains,
       trustInversions: results.trustInversions,
+      exploitNarratives: results.exploitNarratives ?? [],
+      fixPatches: results.fixPatches ?? [],
       agentResults: Object.fromEntries(
         Object.entries(results.agentResults).map(([id, r]) => [id, { status: r.status, findings: r.findings.length, duration: r.duration }])
       ),
@@ -87,6 +89,57 @@ function generateReport(
       if (f.remediation) {
         lines.push(`- **Remediation:** ${f.remediation.summary}`);
       }
+      lines.push('');
+    }
+  }
+
+  // Exploit Narratives
+  const narratives = results.exploitNarratives ?? [];
+  if (narratives.length > 0) {
+    lines.push(`## Exploit Narratives (${narratives.length})`);
+    lines.push('');
+    for (const n of narratives) {
+      lines.push(`### [${n.severity.toUpperCase()}] ${n.findingId}`);
+      lines.push('');
+      lines.push(`**Attack Steps:**`);
+      for (const step of n.attackSteps) {
+        lines.push(`- ${step}`);
+      }
+      lines.push('');
+      lines.push(`**PoC:**`);
+      lines.push('```');
+      lines.push(n.pocCommand);
+      lines.push('```');
+      lines.push('');
+      lines.push(`**Why It Works:** ${n.whyItWorks}`);
+      lines.push('');
+      lines.push(`**Trust Boundary:** ${n.trustBoundary}`);
+      lines.push('');
+      lines.push(`**Fix:**`);
+      lines.push('```');
+      lines.push(n.fix);
+      lines.push('```');
+      lines.push('');
+    }
+  }
+
+  // Fix Patches
+  const patches = results.fixPatches ?? [];
+  if (patches.length > 0) {
+    lines.push(`## Fix Patches (${patches.length})`);
+    lines.push('');
+    for (const p of patches) {
+      lines.push(`### ${p.findingId} → ${p.filePath}`);
+      lines.push('');
+      lines.push(`- **Description:** ${p.description}`);
+      lines.push(`- **Confidence:** ${(p.confidence * 100).toFixed(0)}%`);
+      lines.push(`- **Auto-applicable:** ${p.autoApplicable ? 'Yes' : 'No'}`);
+      lines.push(`- **Reasoning:** ${p.reasoning}`);
+      lines.push('');
+      lines.push(`**Diff:**`);
+      lines.push('```diff');
+      lines.push(p.diff);
+      lines.push('```');
       lines.push('');
     }
   }
