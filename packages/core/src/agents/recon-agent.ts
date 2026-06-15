@@ -483,7 +483,7 @@ Provide a detailed reconnaissance report including:
       { name: 'nextjs', pattern: /__NEXT_DATA__|_next\/static|next\/router/i },
       { name: 'nuxt', pattern: /__NUXT__|_nuxt\/|nuxt/i },
       { name: 'svelte', pattern: /__svelte_component|svelte/i },
-      { name: 'sveltekit', pattern: /__sveltkit|svelte-kit/i },
+      { name: 'sveltekit', pattern: /__sveltekit|svelte-kit/i },
       { name: 'remix', pattern: /__remixContext|remix/i },
       { name: 'astro', pattern: /__astro|astro/i },
     ];

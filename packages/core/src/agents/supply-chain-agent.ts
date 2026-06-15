@@ -390,21 +390,7 @@ Check for:
       }
     }
 
-    // Scan for other dependency files
-    const depFiles = ['requirements.txt', 'Pipfile', 'Cargo.toml', 'go.mod'];
-    for (const depFile of depFiles) {
-      const fullPath = join(rootPath, depFile);
-      if (existsSync(fullPath)) {
-        try {
-          const content = readFileSync(fullPath, 'utf-8');
-          if (content.trim().length > 0) {
-            // Dependency file exists and has content — basic check
-          }
-        } catch {
-          // unreadable
-        }
-      }
-    }
+
 
     await this.teardown?.(context);
 
