@@ -20,6 +20,8 @@ export type {
   AgentResult,
   AgentMetadata,
   BaseAgent,
+  ExploitNarrative,
+  FixPatch,
 } from './agent.js';
 export { DEFAULT_AGENT_CONFIGS } from './agent.js';
 export * from './report.js';
