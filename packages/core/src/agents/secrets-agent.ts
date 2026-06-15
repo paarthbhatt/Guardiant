@@ -1,8 +1,10 @@
 import { AbstractAgent } from './base.js';
 import { createFinding } from './types.js';
 import type { AgentContext, AgentResult, Finding } from '@guardiant/shared';
-import { OWASP_CATEGORIES } from '@guardiant/shared';
+import { OWASP_CATEGORIES, createLogger } from '@guardiant/shared';
 import { createHttpClient } from '../http/index.js';
+import { readFileSync, existsSync, statSync, readdirSync } from 'fs';
+import { join, relative, extname } from 'path';
 
 /**
  * Secrets Detection Agent
@@ -25,6 +27,7 @@ export class SecretsAgent extends AbstractAgent {
   readonly priority = 'critical' as const;
 
   private httpClient: ReturnType<typeof createHttpClient>;
+  private logger = createLogger({ level: 'info' });
 
   constructor(config?: { timeout?: number }) {
     super();
@@ -73,25 +76,31 @@ export class SecretsAgent extends AbstractAgent {
     try {
       await this.setup?.(context);
 
-      // Phase 1: Scan JavaScript bundles
-      const bundleFindings = await this.scanJavaScriptBundles(context);
-      findings.push(...bundleFindings);
+      if (context.target.type === 'directory') {
+        // Scan local files for secrets
+        const fileFindings = await this.scanLocalDirectory(context);
+        findings.push(...fileFindings);
+      } else {
+        // Phase 1: Scan JavaScript bundles
+        const bundleFindings = await this.scanJavaScriptBundles(context);
+        findings.push(...bundleFindings);
 
-      // Phase 2: Check for exposed .env files
-      const envFindings = await this.checkExposedEnvFiles(context);
-      findings.push(...envFindings);
+        // Phase 2: Check for exposed .env files
+        const envFindings = await this.checkExposedEnvFiles(context);
+        findings.push(...envFindings);
 
-      // Phase 3: Check source maps for secrets
-      const sourceMapFindings = await this.checkSourceMaps(context);
-      findings.push(...sourceMapFindings);
+        // Phase 3: Check source maps for secrets
+        const sourceMapFindings = await this.checkSourceMaps(context);
+        findings.push(...sourceMapFindings);
 
-      // Phase 4: Check for exposed config files
-      const configFindings = await this.checkConfigFiles(context);
-      findings.push(...configFindings);
+        // Phase 4: Check for exposed config files
+        const configFindings = await this.checkConfigFiles(context);
+        findings.push(...configFindings);
 
-      // Phase 5: Check HTML for inline secrets
-      const htmlFindings = await this.scanHTML(context);
-      findings.push(...htmlFindings);
+        // Phase 5: Check HTML for inline secrets
+        const htmlFindings = await this.scanHTML(context);
+        findings.push(...htmlFindings);
+      }
 
       await this.teardown?.(context);
 
@@ -107,6 +116,86 @@ export class SecretsAgent extends AbstractAgent {
         this.getDuration(startTime)
       );
     }
+  }
+
+  /**
+   * Scan a local directory for secrets in files
+   */
+  private async scanLocalDirectory(context: AgentContext): Promise<Finding[]> {
+    const findings: Finding[] = [];
+    const rootPath = context.target.url;
+    const foundSecrets = new Set<string>();
+
+    if (!existsSync(rootPath)) return findings;
+
+    const sensitiveExtensions = new Set([
+      '.env', '.env.local', '.env.production', '.env.development',
+      '.key', '.pem', '.p12', '.pfx', '.cert',
+      '.npmrc', '.dockercfg', '.netrc',
+    ]);
+
+    const textExtensions = new Set([
+      '.js', '.jsx', '.ts', '.tsx', '.py', '.rb', '.php', '.java',
+      '.go', '.rs', '.sh', '.bash', '.zsh', '.yaml', '.yml',
+      '.json', '.toml', '.ini', '.cfg', '.conf', '.config',
+      '.xml', '.html', '.htm', '.vue', '.svelte', '.ejs', '.hbs',
+      '.md', '.txt', '.sql', '.gradle', '.properties',
+    ]);
+
+    const excludeDirs = new Set([
+      'node_modules', '.git', '.next', 'dist', 'build',
+      '.cache', 'coverage', '.nyc_output', 'target',
+      '__pycache__', '.venv', 'venv', '.tox',
+    ]);
+
+    const walkDir = (dir: string): void => {
+      let entries: string[];
+      try {
+        entries = readdirSync(dir);
+      } catch {
+        return;
+      }
+
+      for (const entry of entries) {
+        const fullPath = join(dir, entry);
+        try {
+          const stats = statSync(fullPath);
+          if (stats.isDirectory()) {
+            if (!excludeDirs.has(entry)) {
+              walkDir(fullPath);
+            }
+          } else if (stats.isFile()) {
+            const ext = extname(fullPath).toLowerCase();
+            const baseName = entry.toLowerCase();
+
+            if (sensitiveExtensions.has(ext) || sensitiveExtensions.has(baseName) || textExtensions.has(ext)) {
+              try {
+                const content = readFileSync(fullPath, 'utf-8');
+                const relPath = relative(rootPath, fullPath);
+
+                for (const { pattern, name, severity } of this.secretPatterns) {
+                  const matches = content.matchAll(pattern);
+                  for (const match of matches) {
+                    const secretKey = `${name}:${match[0].substring(0, 20)}`;
+                    if (!foundSecrets.has(secretKey)) {
+                      foundSecrets.add(secretKey);
+                      findings.push(this.createSecretFinding(name, match[0], severity, relPath));
+                    }
+                  }
+                }
+              } catch {
+                // Binary or unreadable file, skip
+              }
+            }
+          }
+        } catch {
+          // Permission denied, skip
+        }
+      }
+    };
+
+    walkDir(rootPath);
+    return findings;
   }
 
   getSystemPrompt(): string {
@@ -199,8 +288,7 @@ Check for:
         }
       }
     } catch (error) {
-      // Log error but continue
-      console.error('Error scanning JavaScript bundles:', error);
+      this.logger.warn('Error scanning JavaScript bundles:', error);
     }
 
     return findings;

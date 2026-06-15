@@ -27,6 +27,9 @@ export class BusinessLogicAgent extends AbstractAgent {
     const startTime = Date.now();
     const findings: Finding[] = [];
 
+    // Business logic testing relies on reconData VCVF patterns (no HTTP required)
+    // Works for both URL and directory modes via recon agent analysis
+
     try {
       await this.setup?.(context);
 

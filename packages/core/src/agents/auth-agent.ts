@@ -36,6 +36,14 @@ export class AuthAgent extends AbstractAgent {
     const startTime = Date.now();
     const findings: Finding[] = [];
 
+    // HTTP-based auth testing requires a live target
+    if (context.target.type === 'directory') {
+      return this.createSuccessResult([], {
+        endpointsTested: 0,
+        custom: { reason: 'Auth testing requires a live HTTP target; VCVF patterns analyzed by recon agent' },
+      }, this.getDuration(startTime));
+    }
+
     try {
       await this.setup?.(context);
 

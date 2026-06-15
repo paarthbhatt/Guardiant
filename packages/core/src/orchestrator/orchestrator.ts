@@ -12,14 +12,11 @@ import { createTIEFDetector, type TIEFDetector } from '../analyzers/tief-detecto
  */
 export class Orchestrator {
   private cvcAnalyzer: CVCAnalyzer;
-  // private vcvfMatcher: VCVFMatcher; // currently unused natively but kept per design, keeping instance for future or we can remove it.
-  // actually wait, let's just remove vcvfMatcher field if it's unused.
   private tiefDetector: TIEFDetector;
   private logger = createLogger({ level: 'info' });
 
   constructor() {
     this.cvcAnalyzer = createCVCAnalyzer();
-    // this.vcvfMatcher = createVCVFMatcher();
     this.tiefDetector = createTIEFDetector();
   }
 

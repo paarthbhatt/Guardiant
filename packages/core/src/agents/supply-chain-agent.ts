@@ -3,6 +3,8 @@ import { createFinding } from './types.js';
 import type { AgentContext, AgentResult, Finding } from '@guardiant/shared';
 import { OWASP_CATEGORIES } from '@guardiant/shared';
 import { createHttpClient } from '../http/index.js';
+import { readFileSync, existsSync } from 'fs';
+import { join } from 'path';
 
 type HttpClient = ReturnType<typeof createHttpClient>;
 
@@ -48,6 +50,10 @@ export class SupplyChainAgent extends AbstractAgent {
 
     try {
       await this.setup?.(context);
+
+      if (context.target.type === 'directory') {
+        return await this.executeDirectoryScan(context, startTime);
+      }
 
       // Phase 1: Find package.json or similar
       const packageFiles = await this.findPackageFiles(context);
@@ -294,15 +300,117 @@ Check for:
   private async checkVCVFPatterns(context: AgentContext): Promise<Finding[]> {
     const findings: Finding[] = [];
 
-    // Check for copy-paste insecurity in dependency management
     const hasCopyPaste = context.reconData?.vcvfPatterns.some(
       p => p.type === 'copy_paste_insecurity'
     );
 
     if (hasCopyPaste) {
-      // May indicate dependency versions copied without verification
+      findings.push(
+        createFinding(this.id)
+          .title('Potential Copy-Paste Dependency Risk')
+          .description(
+            'Evidence of copy-paste patterns in dependency management was detected. ' +
+            'Dependencies may have been copied without verifying versions or compatibility, ' +
+            'potentially introducing known vulnerabilities.'
+          )
+          .severity('low')
+          .cvssScore(3.5)
+          .category('A06_VULNERABLE_COMPONENTS')
+          .confidence(0.5)
+          .vcvfPattern('copy_paste_insecurity')
+          .remediation({
+            summary: 'Audit all dependency versions and verify compatibility.',
+            steps: [
+              'Review all dependency versions for known vulnerabilities',
+              'Run npm audit to check for known issues',
+              'Update dependencies to latest stable versions',
+              'Pin dependency versions in lock files',
+            ],
+            effort: 'low',
+            priority: 6,
+          })
+          .tags(['supply-chain', 'copy-paste', 'dependency-versions'])
+          .build()
+      );
     }
 
     return findings;
+  }
+
+  /**
+   * Execute supply chain analysis on a local directory
+   */
+  private async executeDirectoryScan(
+    context: AgentContext,
+    startTime: number
+  ): Promise<AgentResult> {
+    const rootPath = context.target.url;
+    const findings: Finding[] = [];
+
+    // Read package.json directly from filesystem
+    const pkgPath = join(rootPath, 'package.json');
+    if (existsSync(pkgPath)) {
+      try {
+        const content = readFileSync(pkgPath, 'utf-8');
+        const pkg = JSON.parse(content);
+        const dependencies = { ...pkg.dependencies, ...pkg.devDependencies };
+
+        for (const [depName] of Object.entries(dependencies)) {
+          if (this.knownHallucinatedPackages.includes(depName)) {
+            findings.push(
+              createFinding(this.id)
+                .title(`Hallucinated Dependency: ${depName}`)
+                .description(
+                  `The package "${depName}" does not exist on the npm registry. ` +
+                  `This is likely an AI hallucination where the model suggested ` +
+                  `a non-existent package.`
+                )
+                .severity('medium')
+                .cvssScore(6.5)
+                .category('A06_VULNERABLE_COMPONENTS')
+                .confidence(0.9)
+                .evidence({ context: { package: depName, file: 'package.json' } })
+                .remediation({
+                  summary: `Remove or replace the hallucinated "${depName}" package.`,
+                  steps: [
+                    `Check if "${depName}" actually exists on npm (npm view ${depName})`,
+                    'Replace with a known, maintained alternative',
+                    'Remove from package.json dependencies',
+                  ],
+                  effort: 'low',
+                  priority: 6,
+                })
+                .tags(['supply-chain', 'hallucinated', 'dependency'])
+                .build()
+            );
+          }
+        }
+      } catch {
+        // Invalid package.json
+      }
+    }
+
+    // Scan for other dependency files
+    const depFiles = ['requirements.txt', 'Pipfile', 'Cargo.toml', 'go.mod'];
+    for (const depFile of depFiles) {
+      const fullPath = join(rootPath, depFile);
+      if (existsSync(fullPath)) {
+        try {
+          const content = readFileSync(fullPath, 'utf-8');
+          if (content.trim().length > 0) {
+            // Dependency file exists and has content — basic check
+          }
+        } catch {
+          // unreadable
+        }
+      }
+    }
+
+    await this.teardown?.(context);
+
+    return this.createSuccessResult(findings, {
+      filesAnalyzed: existsSync(pkgPath) ? 1 : 0,
+      custom: { scanType: 'directory' },
+    }, this.getDuration(startTime));
   }
 }

@@ -2,8 +2,9 @@ import { AbstractAgent } from './base.js';
 import { createFinding } from './types.js';
 import type { AgentContext, AgentResult, Finding, ReconData, DiscoveredEndpoint, TechStackInfo } from '@guardiant/shared';
 import { OWASP_CATEGORIES } from '@guardiant/shared';
-import type { LLMClient } from '../llm/index.js';
 import { createHttpClient, type HttpResponse } from '../http/index.js';
+import { readFileSync, existsSync, statSync, readdirSync } from 'fs';
+import { join, relative, extname } from 'path';
 
 /**
  * Reconnaissance Agent
@@ -23,9 +24,9 @@ export class ReconAgent extends AbstractAgent {
 
   private httpClient: ReturnType<typeof createHttpClient>;
 
-  constructor(_config?: { llmClient?: LLMClient }) {
+  constructor(config?: { timeout?: number }) {
     super();
-    this.httpClient = createHttpClient(30000);
+    this.httpClient = createHttpClient(config?.timeout ?? 30000);
   }
 
   async execute(context: AgentContext): Promise<AgentResult> {
@@ -33,6 +34,10 @@ export class ReconAgent extends AbstractAgent {
 
     try {
       await this.setup?.(context);
+
+      if (context.target.type === 'directory') {
+        return await this.executeDirectoryScan(context, startTime);
+      }
 
       const baseUrl = context.target.url;
 
@@ -781,5 +786,258 @@ Provide a detailed reconnaissance report including:
     }
 
     return services;
+  }
+
+  /**
+   * Execute recon on a local directory by reading files directly
+   */
+  private async executeDirectoryScan(
+    context: AgentContext,
+    startTime: number
+  ): Promise<AgentResult> {
+    const rootPath = context.target.url;
+    const findings: Finding[] = [];
+
+    // Collect all source file content
+    let allSourceContent = '';
+    const sourceFiles: string[] = [];
+
+    const textExtensions = new Set([
+      '.js', '.jsx', '.ts', '.tsx', '.py', '.rb', '.php', '.java',
+      '.go', '.rs', '.sh', '.bash', '.yaml', '.yml',
+      '.json', '.toml', '.ini', '.cfg', '.conf',
+      '.xml', '.html', '.htm', '.vue', '.svelte',
+      '.md', '.txt', '.sql', '.css', '.scss', '.env',
+    ]);
+
+    const excludeDirs = new Set([
+      'node_modules', '.git', '.next', 'dist', 'build',
+      '.cache', 'coverage', '.nyc_output', 'target',
+      '__pycache__', '.venv', 'venv', '.tox',
+    ]);
+
+    let configContent = '';
+    let htmlContent = '';
+    let hasClientCheck = false;
+    let hasDirectBaaSCalls = false;
+    let hasServiceKey = false;
+    let hasClientValidation = false;
+    let hasCatchWithoutHandle = false;
+    let hasCORSWildcard = false;
+
+    const walkDir = (dir: string): void => {
+      let entries: string[];
+      try {
+        entries = readdirSync(dir);
+      } catch {
+        return;
+      }
+
+      for (const entry of entries) {
+        const fullPath = join(dir, entry);
+        try {
+          const stats = statSync(fullPath);
+          if (stats.isDirectory()) {
+            if (!excludeDirs.has(entry)) {
+              walkDir(fullPath);
+            }
+          } else if (stats.isFile()) {
+            const ext = extname(fullPath).toLowerCase();
+            const baseName = entry.toLowerCase();
+            if (textExtensions.has(ext) || textExtensions.has(baseName)) {
+              try {
+                const content = readFileSync(fullPath, 'utf-8');
+                allSourceContent += content + '\n';
+
+                // Track specific file types
+                if (baseName === 'package.json' && !configContent) {
+                  configContent = content;
+                }
+                if (ext === '.html' || ext === '.htm') {
+                  htmlContent += content + '\n';
+                }
+
+                // Scan for patterns
+                if (/role\s*===?\s*['"]admin['"]|isAdmin\(|checkRole\(/i.test(content)) hasClientCheck = true;
+                if (/\.from\([^)]+\)\.(select|insert|update|delete)/i.test(content)) hasDirectBaaSCalls = true;
+                if (/service_role|supabase_service_role_key/i.test(content)) hasServiceKey = true;
+                if (/required|validate|check.*input/i.test(content)) hasClientValidation = true;
+                if (/\.catch\s*\(\s*\(\s*\)\s*=>\s*\{\s*\}|\.catch\s*\(\s*\(\s*\)\s*=>/i.test(content)) hasCatchWithoutHandle = true;
+                if (/cors.*\*|access-control-allow-origin.*\*/i.test(content)) hasCORSWildcard = true;
+
+                sourceFiles.push(relative(rootPath, fullPath));
+              } catch {
+                // Binary or unreadable
+              }
+            }
+          }
+        } catch {
+          // Permission denied
+        }
+      }
+    };
+
+    walkDir(rootPath);
+
+    // Analyze tech stack from configContent
+    const techStack: TechStackInfo = {};
+    if (configContent) {
+      try {
+        const pkg = JSON.parse(configContent);
+        const deps = { ...pkg.dependencies, ...pkg.devDependencies };
+        const depNames = Object.keys(deps || {}).join(' ').toLowerCase();
+
+        if (/react/i.test(depNames)) {
+          techStack.frameworks = ['react'];
+          if (/next/i.test(depNames)) techStack.frameworks.push('nextjs');
+        }
+        if (/vue/i.test(depNames)) techStack.frameworks = ['vue'];
+        if (/angular/i.test(depNames)) techStack.frameworks = ['angular'];
+        if (/svelte/i.test(depNames)) techStack.frameworks = ['svelte'];
+        if (/supabase/i.test(depNames)) {
+          techStack.baas = { provider: 'supabase', features: [] };
+          if (/@supabase\/supabase-js/i.test(depNames)) techStack.baas.features.push('database');
+          if (/@supabase\/gotrue-js|next-auth.*supabase/i.test(depNames)) techStack.baas.features.push('auth');
+        }
+        if (/firebase/i.test(depNames)) {
+          techStack.baas = { provider: 'firebase', features: [] };
+          if (/firebase-admin|firebase-functions/i.test(depNames)) techStack.baas.features.push('functions');
+          if (/firebase-auth|@angular\/fire.*auth/i.test(depNames)) techStack.baas.features.push('auth');
+        }
+        if (/auth0|next-auth|clerk|lucia/i.test(depNames)) techStack.authProviders = ['oauth'];
+        if (/stripe/i.test(depNames)) techStack.authProviders = [...(techStack.authProviders || []), 'stripe'];
+      } catch {
+        // Invalid JSON
+      }
+    }
+
+    // Detect endpoints from source code
+    const endpoints: DiscoveredEndpoint[] = [];
+    const seenPaths = new Set<string>();
+    const apiPathRegex = /["'`](?:\/api\/[a-zA-Z0-9/_-]+)["'`]/gi;
+    let match;
+    while ((match = apiPathRegex.exec(allSourceContent)) !== null) {
+      const path = match[0].replace(/['"`]/g, '');
+      if (!seenPaths.has(path)) {
+        seenPaths.add(path);
+        endpoints.push({ path, method: 'GET', authentication: true });
+      }
+    }
+
+    // Detect auth mechanisms
+    const authMechanisms: ReconData['authMechanisms'] = [];
+    if (/jwt|bearer/i.test(allSourceContent) || /localStorage.*token/i.test(allSourceContent)) {
+      authMechanisms.push({ type: 'jwt', location: 'header', flows: [] });
+    }
+    if (/session|connect\.sid/i.test(allSourceContent)) {
+      authMechanisms.push({ type: 'session', location: 'cookie', flows: [] });
+    }
+    if (/supabase|firebase/i.test(allSourceContent)) {
+      authMechanisms.push({ type: 'custom', location: 'header', flows: ['email-password', 'oauth'] } as any);
+    }
+
+    // Find config files (local filesystem version)
+    const configFiles: ReconData['configFiles'] = [];
+    const configFilePatterns = [
+      '.env', '.env.local', '.env.production', '.env.development',
+      'firebase.json', '.firebaserc', 'supabase/config.toml',
+    ];
+    for (const configPath of configFilePatterns) {
+      const fullPath = join(rootPath, configPath);
+      if (existsSync(fullPath)) {
+        configFiles.push({ path: `/${configPath}`, accessible: true, sensitive: configPath !== 'package.json' });
+      }
+    }
+
+    // Detect VCVF patterns
+    const vcvfPatterns: ReconData['vcvfPatterns'] = [];
+    if (techStack.baas && hasClientCheck) {
+      vcvfPatterns.push({ type: 'auth_authz_conflation', locations: sourceFiles.slice(0, 5).map(f => ({ file: f })), confidence: 0.85 });
+    }
+    if (hasDirectBaaSCalls || hasServiceKey) {
+      vcvfPatterns.push({ type: 'baas_bypass_architecture', locations: sourceFiles.slice(0, 5).map(f => ({ file: f })), confidence: hasServiceKey ? 0.95 : 0.7 });
+    }
+    if (hasClientValidation) {
+      vcvfPatterns.push({ type: 'optimistic_trust_patterns', locations: sourceFiles.slice(0, 3).map(f => ({ file: f })), confidence: 0.6 });
+    }
+    if (hasCatchWithoutHandle) {
+      vcvfPatterns.push({ type: 'missing_negative_cases', locations: sourceFiles.slice(0, 3).map(f => ({ file: f })), confidence: 0.5 });
+    }
+    if (hasCORSWildcard) {
+      vcvfPatterns.push({ type: 'over_permissive_defaults', locations: sourceFiles.slice(0, 3).map(f => ({ file: f })), confidence: 0.7 });
+    }
+
+    // Data flows
+    const dataFlows: ReconData['dataFlows'] = [];
+    if (/fetch\(|axios\.|\.from\(|\.post\(/i.test(allSourceContent)) {
+      dataFlows.push({ source: 'user_input', sink: 'api', transformation: 'unknown' });
+    }
+
+    // External services
+    const externalServices: ReconData['externalServices'] = [];
+    const servicePatterns: Array<{ name: string; pattern: RegExp; type: string }> = [
+      { name: 'Stripe', pattern: /stripe\.com|Stripe\(/i, type: 'payment' },
+      { name: 'OpenAI', pattern: /openai|api\.openai\.com|sk-/i, type: 'ai' },
+      { name: 'Anthropic', pattern: /anthropic|api\.anthropic\.com|sk-ant-/i, type: 'ai' },
+      { name: 'AWS', pattern: /amazonaws\.com|aws-sdk/i, type: 'cloud' },
+      { name: 'Google Cloud', pattern: /googleapis\.com|gcloud/i, type: 'cloud' },
+      { name: 'Sentry', pattern: /sentry\.io|Sentry\.init/i, type: 'monitoring' },
+    ];
+    for (const { name, pattern, type } of servicePatterns) {
+      if (pattern.test(allSourceContent)) {
+        externalServices.push({ name, type });
+      }
+    }
+
+    const reconData: ReconData = {
+      endpoints,
+      techStack,
+      authMechanisms,
+      sourceMapsAvailable: false,
+      configFiles,
+      vcvfPatterns,
+      dataFlows,
+      externalServices,
+    };
+
+    // Findings from config file exposure
+    for (const configFile of configFiles) {
+      if (configFile.sensitive) {
+        findings.push(
+          createFinding(this.id)
+            .title(`Exposed Configuration File: ${configFile.path}`)
+            .description(
+              `A sensitive configuration file (${configFile.path}) was found in the repository. ` +
+              `This may contain credentials, API keys, or other sensitive information.`
+            )
+            .severity('high')
+            .cvssScore(7.5)
+            .category('A05_SECURITY_MISCONFIGURATION')
+            .confidence(0.85)
+            .evidence({ file: configFile.path, context: { accessible: true } })
+            .remediation({
+              summary: `Remove or restrict access to ${configFile.path}.`,
+              steps: [
+                'Add the file to .gitignore',
+                'Configure web server to deny access to sensitive files',
+                'Remove any committed sensitive files from git history',
+              ],
+              effort: 'low',
+              priority: 2,
+            })
+            .addTag('recon')
+            .addTag('config-exposure')
+            .build()
+        );
+      }
+    }
+
+    await this.teardown?.(context);
+
+    return this.createSuccessResult(findings, {
+      filesAnalyzed: sourceFiles.length,
+      endpointsTested: endpoints.length,
+      custom: { reconData },
+    }, this.getDuration(startTime));
   }
 }

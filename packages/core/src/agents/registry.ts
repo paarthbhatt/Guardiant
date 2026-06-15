@@ -1,7 +1,7 @@
 import type { BaseAgent, AgentId, AgentConfig } from '@guardiant/shared';
 import { DEFAULT_AGENT_CONFIGS } from '@guardiant/shared';
 import { ReconAgent } from './recon-agent.js';
-import { BaaSsAgent } from './baas-agent.js';
+import { BaaSAgent } from './baas-agent.js';
 import { SecretsAgent } from './secrets-agent.js';
 import { AuthAgent } from './auth-agent.js';
 import { InjectionAgent } from './injection-agent.js';
@@ -131,7 +131,7 @@ export const agentRegistry = new AgentRegistry();
 export function registerDefaultAgents(): void {
   const agents: BaseAgent[] = [
     new ReconAgent(),
-    new BaaSsAgent(),
+    new BaaSAgent(),
     new SecretsAgent(),
     new AuthAgent(),
     new InjectionAgent(),

@@ -1,8 +1,10 @@
 import { AbstractAgent } from './base.js';
 import { createFinding } from './types.js';
 import type { AgentContext, AgentResult, Finding } from '@guardiant/shared';
-import { OWASP_CATEGORIES } from '@guardiant/shared';
+import { OWASP_CATEGORIES, createLogger } from '@guardiant/shared';
 import { createHttpClient } from '../http/index.js';
+import { readFileSync, statSync, readdirSync } from 'fs';
+import { join, relative, extname } from 'path';
 
 /**
  * BaaS Security Agent
@@ -16,7 +18,7 @@ import { createHttpClient } from '../http/index.js';
  *
  * This is critical for vibe-coded apps which heavily use BaaS platforms.
  */
-export class BaaSsAgent extends AbstractAgent {
+export class BaaSAgent extends AbstractAgent {
   readonly id = 'baas' as const;
   readonly name = 'BaaS Security Agent';
   readonly description = 'Tests BaaS-specific security (Supabase RLS, Firebase rules, service key exposure).';
@@ -27,6 +29,7 @@ export class BaaSsAgent extends AbstractAgent {
   readonly priority = 'critical' as const;
 
   private httpClient: ReturnType<typeof createHttpClient>;
+  private logger = createLogger({ level: 'info' });
 
   constructor(config?: { timeout?: number }) {
     super();
@@ -36,6 +39,11 @@ export class BaaSsAgent extends AbstractAgent {
   async execute(context: AgentContext): Promise<AgentResult> {
     const startTime = Date.now();
     const findings: Finding[] = [];
+
+    // Skip HTTP-based BaaS testing for local directories — use source code analysis instead
+    if (context.target.type === 'directory') {
+      return await this.executeDirectoryScan(context, startTime);
+    }
 
     try {
       await this.setup?.(context);
@@ -216,9 +224,6 @@ Check for:
       { pattern: /supabase_service_key\s*[=:]\s*['"`]([^'"`]{20,})['"`]/i, name: 'Service Key', severity: 'critical' as const },
     ];
 
-    // Anon-key patterns (informational only, not flagged as critical)
-    // const _anonPatterns = [...]
-
     // Firebase patterns
     const firebasePatterns = [
       { pattern: /firebase_admin_key/i, name: 'Firebase Admin Key Reference', severity: 'critical' as const },
@@ -342,8 +347,7 @@ const supabase = createClient(
       }
 
     } catch (error) {
-      // Log error but continue
-      console.error('Error checking service key exposure:', error);
+      this.logger.warn('Error checking service key exposure:', error);
     }
 
     return findings;
@@ -359,8 +363,9 @@ const supabase = createClient(
 
     while ((match = scriptRegex.exec(html)) !== null) {
       const src = match[1];
+      if (!src) continue;
       try {
-        const url = src!.startsWith('http') ? src! : new URL(src!, baseUrl).toString();
+        const url = src.startsWith('http') ? src : new URL(src, baseUrl).toString();
         urls.push(url);
       } catch {
         // Invalid URL
@@ -1088,5 +1093,113 @@ exports.adminAction = functions.https.onCall(async (data, context) => {
     }
 
     return findings;
+  }
+
+  /**
+   * Execute BaaS analysis on a local directory by reading source files
+   */
+  private async executeDirectoryScan(
+    context: AgentContext,
+    startTime: number
+  ): Promise<AgentResult> {
+    const rootPath = context.target.url;
+    const findings: Finding[] = [];
+
+    const criticalPatterns = [
+      { pattern: /supabase_service_role_key\s*[=:]\s*['"`]([^'"`]{20,})['"`]/i, name: 'Supabase Service Role Key' },
+      { pattern: /SUPABASE_SERVICE_ROLE_KEY\s*[=:]\s*['"`]([^'"`]{20,})['"`]/i, name: 'Supabase Service Role Key (env)' },
+      { pattern: /service_role['"`]\s*[,:]?\s*['"`]eyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+/i, name: 'Supabase Service Role JWT' },
+      { pattern: /supabase_service_key\s*[=:]\s*['"`]([^'"`]{20,})['"`]/i, name: 'Supabase Service Key' },
+      { pattern: /firebase_admin_key/i, name: 'Firebase Admin Key Reference' },
+      { pattern: /private_key\s*=\s*['"`]-----BEGIN PRIVATE KEY-----/i, name: 'Firebase Private Key' },
+    ];
+
+    const textExtensions = new Set([
+      '.js', '.jsx', '.ts', '.tsx', '.py', '.rb', '.php', '.java',
+      '.go', '.rs', '.sh', '.yaml', '.yml', '.json', '.toml',
+      '.xml', '.html', '.htm', '.vue', '.svelte', '.env',
+    ]);
+
+    const excludeDirs = new Set([
+      'node_modules', '.git', '.next', 'dist', 'build',
+      '.cache', 'coverage', '.nyc_output', 'target',
+      '__pycache__', '.venv', 'venv', '.tox',
+    ]);
+
+    const walkDir = (dir: string): void => {
+      let entries: string[];
+      try {
+        entries = readdirSync(dir);
+      } catch {
+        return;
+      }
+
+      for (const entry of entries) {
+        const fullPath = join(dir, entry);
+        try {
+          const stats = statSync(fullPath);
+          if (stats.isDirectory()) {
+            if (!excludeDirs.has(entry)) walkDir(fullPath);
+          } else if (stats.isFile()) {
+            const ext = extname(fullPath).toLowerCase();
+            if (textExtensions.has(ext)) {
+              try {
+                const content = readFileSync(fullPath, 'utf-8');
+                const relPath = relative(rootPath, fullPath);
+
+                for (const { pattern, name } of criticalPatterns) {
+                  const match = content.match(pattern);
+                  if (match) {
+                    findings.push(
+                      createFinding(this.id)
+                        .title(`Exposed ${name}`)
+                        .description(
+                          `A ${name} was found in ${relPath}. ` +
+                          `This key bypasses all security controls and provides full administrative access.`
+                        )
+                        .severity('critical')
+                        .cvssScore(10.0)
+                        .category('A05_SECURITY_MISCONFIGURATION')
+                        .confidence(0.95)
+                        .evidence({
+                          file: relPath,
+                          snippet: match[0].substring(0, 50) + '...',
+                          context: { keyType: name },
+                        })
+                        .remediation({
+                          summary: `Remove the ${name} from source code immediately.`,
+                          steps: [
+                            'Remove all instances of the key from your codebase',
+                            'Use environment variables on the server side only',
+                            'Regenerate the key in your BaaS dashboard immediately',
+                            'Add pre-commit hooks to prevent future commits with secrets',
+                          ],
+                          effort: 'low',
+                          priority: 1,
+                        })
+                        .tags(['baas', 'service-key', 'critical', name.toLowerCase().replace(/\s+/g, '-')])
+                        .build()
+                    );
+                  }
+                }
+              } catch {
+                // Binary or unreadable
+              }
+            }
+          }
+        } catch {
+          // Permission denied
+        }
+      }
+    };
+
+    walkDir(rootPath);
+
+    await this.teardown?.(context);
+
+    return this.createSuccessResult(findings, {
+      filesAnalyzed: 0,
+      custom: { scanType: 'directory' },
+    }, this.getDuration(startTime));
   }
 }

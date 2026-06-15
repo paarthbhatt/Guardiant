@@ -26,6 +26,19 @@ export class InjectionAgent extends AbstractAgent {
   async execute(context: AgentContext): Promise<AgentResult> {
     const startTime = Date.now();
     const findings: Finding[] = [];
+
+    // Skip HTTP-based injection testing for local directories
+    if (context.target.type === 'directory') {
+      return this.createSuccessResult(findings, {
+        endpointsTested: 0,
+        custom: {
+          totalChecks: 0,
+          vulnerabilitiesFound: 0,
+          reason: 'Injection testing requires a live HTTP target',
+        },
+      }, this.getDuration(startTime));
+    }
+
     const scanner = createWebScanner({ timeout: context.config.timeout ?? 30000 });
 
     try {

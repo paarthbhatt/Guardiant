@@ -2,6 +2,7 @@ import { Command } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
 import Table from 'cli-table3';
+import { existsSync } from 'fs';
 import { createOrchestrator, registerDefaultAgents } from '@guardiant/core';
 import { createDatabase } from '@guardiant/database';
 import { createScan, startScan, completeScan } from '@guardiant/database';
@@ -47,10 +48,40 @@ export const scanCommand = new Command('scan')
 
       const validatedArgs = parseScanArgs(rawArgs);
 
+      // Auto-detect scan type if still 'url' and target is a local path
+      let scanType = validatedArgs.type;
+      if (scanType === 'url') {
+        const targetStr = validatedArgs.target;
+        // Check for Windows drive letter paths (e.g., C:\Users\...)
+        const isWindowsPath = /^[a-zA-Z]:[\\/]/.test(targetStr);
+        if (isWindowsPath) {
+          if (existsSync(targetStr)) {
+            scanType = 'directory';
+          }
+        } else {
+          try {
+            const url = new URL(targetStr);
+            // Check it's actually an HTTP/HTTPS URL, not some other protocol
+            if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+              if (existsSync(targetStr)) {
+                scanType = 'directory';
+              }
+            }
+          } catch {
+            // Not a valid URL - check if it's a local path
+            if (existsSync(targetStr)) {
+              scanType = 'directory';
+            }
+          }
+        }
+      }
+
+      logger.info(`Scan type detected: ${scanType}`);
+
       // Create scan config
       const config: ScanConfig = {
         target: validatedArgs.target,
-        type: validatedArgs.type,
+        type: scanType,
         agents: validatedArgs.agents as AgentId[],
         maxConcurrency: validatedArgs.maxConcurrency,
         timeout: validatedArgs.timeout,
