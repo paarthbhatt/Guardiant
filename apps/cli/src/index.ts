@@ -5,6 +5,8 @@ import { scanCommand } from './commands/scan.js';
 import { reportCommand } from './commands/report.js';
 import { configCommand } from './commands/config.js';
 import { versionCommand } from './commands/version.js';
+import { exploitCommand } from './commands/exploit.js';
+import { fixCommand } from './commands/fix.js';
 
 // ASCII Art Banner
 const BANNER = `
@@ -46,6 +48,8 @@ if (process.argv.length <= 2 && !args.includes('--help') && !args.includes('-h')
 // Register commands
 program.addCommand(scanCommand);
 program.addCommand(reportCommand);
+program.addCommand(exploitCommand);
+program.addCommand(fixCommand);
 program.addCommand(configCommand);
 program.addCommand(versionCommand);
 
