@@ -8,6 +8,8 @@ import { InjectionAgent } from './injection-agent.js';
 import { SupplyChainAgent } from './supply-chain-agent.js';
 import { BusinessLogicAgent } from './business-logic-agent.js';
 import { RaceConditionAgent } from './race-condition-agent.js';
+import { ExploitAgent } from './exploit-agent.js';
+import { FixAgent } from './fix-agent.js';
 
 /**
  * Agent registry for managing all available agents
@@ -138,6 +140,8 @@ export function registerDefaultAgents(): void {
     new SupplyChainAgent(),
     new BusinessLogicAgent(),
     new RaceConditionAgent(),
+    new ExploitAgent(),
+    new FixAgent(),
   ];
 
   for (const agent of agents) {

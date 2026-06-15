@@ -9,3 +9,5 @@ export * from './injection-agent.js';
 export * from './supply-chain-agent.js';
 export * from './business-logic-agent.js';
 export * from './race-condition-agent.js';
+export * from './exploit-agent.js';
+export * from './fix-agent.js';

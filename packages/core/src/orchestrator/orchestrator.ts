@@ -1,4 +1,4 @@
-import type { ScanConfig, AgentId, AgentResult, Finding, VulnerabilityChain, VCVFFingerprint, TrustInversion, ReconData, VCVFPatternType } from '@guardiant/shared';
+import type { ScanConfig, AgentId, AgentResult, Finding, VulnerabilityChain, VCVFFingerprint, TrustInversion, ReconData, VCVFPatternType, ExploitNarrative, FixPatch, AgentContext } from '@guardiant/shared';
 import { DEFAULT_AGENT_CONFIGS, createLogger } from '@guardiant/shared';
 import { agentRegistry } from '../agents/registry.js';
 import { AGENT_EXECUTION_ORDER } from './constants.js';
@@ -30,10 +30,14 @@ export class Orchestrator {
     vcvfFingerprints: VCVFFingerprint[];
     trustInversions: TrustInversion[];
     reconData?: ReconData;
+    exploitNarratives: ExploitNarrative[];
+    fixPatches: FixPatch[];
   }> {
     this.logger.info(`Starting scan for target: ${config.target}`);
 
     const agentResults: Record<AgentId, AgentResult> = {} as Record<AgentId, AgentResult>;
+    const exploitNarratives: ExploitNarrative[] = [];
+    const fixPatches: FixPatch[] = [];
     let reconData: ReconData | undefined;
 
     // Phase 1: Recon (must run first)
@@ -57,7 +61,7 @@ export class Orchestrator {
     const allParallelAgents = AGENT_EXECUTION_ORDER[1] ?? []; // All agents except recon
 
     // Filter agents if specific agents are requested
-    const requestedAgents = config.agents?.filter(a => a !== 'recon');
+    const requestedAgents = config.agents?.filter(a => a !== 'recon' && a !== 'exploit' && a !== 'fix');
     const parallelAgents = requestedAgents && requestedAgents.length > 0
       ? allParallelAgents.filter(id => (requestedAgents as string[]).includes(id))
       : allParallelAgents;
@@ -144,7 +148,71 @@ export class Orchestrator {
     this.logger.info('Phase 5: Running TIEF Analysis...');
     const trustInversions = await this.tiefDetector.detect(allFindings);
 
-    this.logger.info(`Scan complete: ${allFindings.length} findings, ${chains.length} chains, ${trustInversions.length} trust inversions`);
+    // Phase 6: Exploit Generation (depends on all findings from Phase 2 + analysis from Phase 3-5)
+    if (config.phases?.exploit !== false) {
+      this.logger.info('Phase 6: Running Exploit Agent...');
+      const exploitAgent = agentRegistry.get('exploit');
+      if (exploitAgent) {
+        try {
+          const exploitContext = {
+            scanId: 'scan_temp',
+            target: { url: config.target, type: config.type },
+            reconData,
+            config: DEFAULT_AGENT_CONFIGS.exploit,
+            metadata: {
+              findings: allFindings,
+              reconData,
+              activeMode: config.activeExploit === true,
+            },
+          } as unknown as AgentContext;
+          const exploitResult = await exploitAgent.execute(exploitContext);
+          agentResults.exploit = exploitResult;
+
+          const meta = exploitResult.metadata.custom as { narratives?: ExploitNarrative[] } | undefined;
+          if (meta?.narratives) {
+            exploitNarratives.push(...meta.narratives);
+          }
+        } catch (error) {
+          this.logger.error('Exploit agent failed:', error);
+        }
+      }
+    }
+
+    // Phase 7: Fix Generation (depends on findings + target path)
+    if (config.phases?.fix !== false) {
+      this.logger.info('Phase 7: Running Fix Agent...');
+      const fixAgent = agentRegistry.get('fix');
+      if (fixAgent) {
+        try {
+          const fixContext = {
+            scanId: 'scan_temp',
+            target: { url: config.target, type: config.type },
+            reconData,
+            config: DEFAULT_AGENT_CONFIGS.fix,
+            metadata: {
+              findings: allFindings,
+              targetPath: config.target,
+              mode: config.autoFix === true ? 'apply' : 'dry-run',
+            },
+          } as unknown as AgentContext;
+          const fixResult = await fixAgent.execute(fixContext);
+          agentResults.fix = fixResult;
+
+          const meta = fixResult.metadata.custom as { patches?: FixPatch[] } | undefined;
+          if (meta?.patches) {
+            fixPatches.push(...meta.patches);
+          }
+        } catch (error) {
+          this.logger.error('Fix agent failed:', error);
+        }
+      }
+    }
+
+    this.logger.info(
+      `Scan complete: ${allFindings.length} findings, ${chains.length} chains, ` +
+      `${trustInversions.length} trust inversions, ${exploitNarratives.length} exploit narratives, ` +
+      `${fixPatches.length} fix patches`
+    );
 
     return {
       findings: allFindings,
@@ -153,6 +221,8 @@ export class Orchestrator {
       vcvfFingerprints,
       trustInversions,
       reconData,
+      exploitNarratives,
+      fixPatches,
     };
   }
 

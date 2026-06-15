@@ -8,15 +8,18 @@ import type { AgentId } from '@guardiant/shared';
  * Agent execution order
  * First array contains agents that run in sequence
  * Second array contains agents that run in parallel after recon
+ * Third array contains post-analysis agents (depend on all previous findings)
  */
 export const AGENT_EXECUTION_ORDER: AgentId[][] = [
   ['recon'], // Phase 1: Recon must run first
   ['baas', 'secrets', 'auth', 'injection', 'supply_chain', 'business_logic', 'race_condition'], // Phase 2: All others in parallel
+  ['exploit', 'fix'], // Phase 4+5: Post-analysis agents (depend on findings from Phase 2 + 3)
 ];
 
 /**
  * Agent dependencies
  * Each agent depends on recon completing first
+ * Exploit and fix depend on the agent swarm and analysis phases
  */
 export const AGENT_DEPENDENCIES: Record<AgentId, AgentId[]> = {
   recon: [],
@@ -27,6 +30,8 @@ export const AGENT_DEPENDENCIES: Record<AgentId, AgentId[]> = {
   supply_chain: ['recon'],
   business_logic: ['recon'],
   race_condition: ['recon'],
+  exploit: ['recon', 'baas', 'secrets', 'auth', 'injection', 'supply_chain', 'business_logic', 'race_condition'],
+  fix: ['recon', 'baas', 'secrets', 'auth', 'injection', 'supply_chain', 'business_logic', 'race_condition'],
 };
 
 /**
@@ -41,6 +46,8 @@ export const AGENT_PRIORITIES: Record<AgentId, 'critical' | 'high' | 'normal' | 
   supply_chain: 'normal',
   business_logic: 'normal',
   race_condition: 'low',
+  exploit: 'normal',
+  fix: 'low',
 };
 
 /**
@@ -55,6 +62,8 @@ export const AGENT_TIMEOUTS: Record<AgentId, number> = {
   supply_chain: 60000, // 1 minute
   business_logic: 180000, // 3 minutes
   race_condition: 120000, // 2 minutes
+  exploit: 60000, // 1 minute
+  fix: 60000, // 1 minute
 };
 
 /**
@@ -69,4 +78,6 @@ export const AGENT_RETRIES: Record<AgentId, number> = {
   supply_chain: 3,
   business_logic: 1,
   race_condition: 2,
+  exploit: 1,
+  fix: 1,
 };
