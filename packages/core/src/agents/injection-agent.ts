@@ -39,7 +39,13 @@ export class InjectionAgent extends AbstractAgent {
       }, this.getDuration(startTime));
     }
 
-    const scanner = createWebScanner({ timeout: context.config.timeout ?? 30000 });
+    // Overall time limit for the entire injection agent (2 minutes max)
+    const overallTimeout = 120_000;
+    const deadline = startTime + overallTimeout;
+    // Per-request timeout: 5 seconds (fast-fail on hanging connections)
+    const perRequestTimeout = 5_000;
+
+    const scanner = createWebScanner({ timeout: perRequestTimeout });
 
     try {
       await this.setup?.(context);
@@ -64,20 +70,27 @@ export class InjectionAgent extends AbstractAgent {
       // Test each endpoint
       for (const endpoint of endpoints) {
         if (!context.config.enabled) break; // Stop if agent disabled
+        if (Date.now() >= deadline) break; // Stop if overall time limit reached
 
         // Test SQL Injection
         const sqliChecks = await this.testSQLInjection(scanner, endpoint, baseUrl);
         allChecks.push(...sqliChecks);
 
+        if (Date.now() >= deadline) break;
+
         // Test XSS
         const xssChecks = await this.testXSS(scanner, endpoint, baseUrl);
         allChecks.push(...xssChecks);
+
+        if (Date.now() >= deadline) break;
 
         // Test Command Injection (on POST endpoints)
         if (endpoint.method === 'POST') {
           const cmdiChecks = await this.testCommandInjection(scanner, endpoint, baseUrl);
           allChecks.push(...cmdiChecks);
         }
+
+        if (Date.now() >= deadline) break;
 
         // Test Path Traversal
         const pathChecks = await this.testPathTraversal(scanner, endpoint, baseUrl);

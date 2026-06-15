@@ -54,7 +54,13 @@ export class Orchestrator {
 
     // Phase 2: Run all other agents in parallel
     this.logger.info('Phase 2: Running Agent Swarm...');
-    const parallelAgents = AGENT_EXECUTION_ORDER[1] ?? []; // All agents except recon
+    const allParallelAgents = AGENT_EXECUTION_ORDER[1] ?? []; // All agents except recon
+
+    // Filter agents if specific agents are requested
+    const requestedAgents = config.agents?.filter(a => a !== 'recon');
+    const parallelAgents = requestedAgents && requestedAgents.length > 0
+      ? allParallelAgents.filter(id => (requestedAgents as string[]).includes(id))
+      : allParallelAgents;
 
     const agentPromises = parallelAgents.map(async (agentId) => {
       const agent = agentRegistry.get(agentId);

@@ -2,7 +2,8 @@ import { Command } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
 import Table from 'cli-table3';
-import { existsSync } from 'fs';
+import { existsSync, writeFileSync, mkdirSync } from 'fs';
+import { dirname } from 'path';
 import { createOrchestrator, registerDefaultAgents } from '@guardiant/core';
 import { createDatabase } from '@guardiant/database';
 import { createScan, startScan, completeScan } from '@guardiant/database';
@@ -13,6 +14,84 @@ import { parseScanArgs } from '../validation/scan-args.js';
 // Generate a simple scan ID if database is unavailable
 function generateScanId(): string {
   return `scan-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
+}
+
+function generateReport(
+  results: { findings: Finding[]; chains: unknown[]; trustInversions: unknown[]; agentResults: Record<AgentId, AgentResult> },
+  target: string,
+  durationMs: number,
+  scanId: string,
+  format: string
+): string {
+  if (format === 'json') {
+    return JSON.stringify({
+      scanId,
+      target,
+      duration: durationMs,
+      findings: results.findings,
+      chains: results.chains,
+      trustInversions: results.trustInversions,
+      agentResults: Object.fromEntries(
+        Object.entries(results.agentResults).map(([id, r]) => [id, { status: r.status, findings: r.findings.length, duration: r.duration }])
+      ),
+    }, null, 2);
+  }
+
+  // Markdown format
+  const lines: string[] = [];
+  lines.push(`# Guardiant Scan Report`);
+  lines.push('');
+  lines.push(`- **Target:** ${target}`);
+  lines.push(`- **Scan ID:** ${scanId}`);
+  lines.push(`- **Duration:** ${formatDuration(durationMs)}`);
+  lines.push(`- **Findings:** ${results.findings.length}`);
+  lines.push('');
+
+  // Summary
+  const counts = { critical: 0, high: 0, medium: 0, low: 0 };
+  for (const f of results.findings) {
+    const sev = f.severity as keyof typeof counts;
+    if (sev in counts) counts[sev]++;
+  }
+  lines.push(`## Summary`);
+  lines.push('');
+  lines.push(`| Severity | Count |`);
+  lines.push(`|----------|-------|`);
+  lines.push(`| Critical | ${counts.critical} |`);
+  lines.push(`| High | ${counts.high} |`);
+  lines.push(`| Medium | ${counts.medium} |`);
+  lines.push(`| Low | ${counts.low} |`);
+  lines.push('');
+
+  // Trust inversions
+  if (results.trustInversions.length > 0) {
+    lines.push(`## Trust Inversions`);
+    lines.push('');
+    for (const inv of results.trustInversions as Array<{ severity: string; type: string; misplacedTrust: string; actualBoundary: string }>) {
+      lines.push(`- **[${inv.severity}] ${inv.type}:** ${inv.misplacedTrust} → ${inv.actualBoundary}`);
+    }
+    lines.push('');
+  }
+
+  // Findings
+  if (results.findings.length > 0) {
+    lines.push(`## Findings`);
+    lines.push('');
+    for (const f of results.findings) {
+      lines.push(`### ${f.severity.toUpperCase()}: ${f.title}`);
+      lines.push('');
+      lines.push(`- **Category:** ${f.category}`);
+      lines.push(`- **CVSS:** ${f.cvssScore}`);
+      lines.push(`- **Confidence:** ${f.confidence}`);
+      lines.push(`- **Description:** ${f.description}`);
+      if (f.remediation) {
+        lines.push(`- **Remediation:** ${f.remediation.summary}`);
+      }
+      lines.push('');
+    }
+  }
+
+  return lines.join('\n');
 }
 
 export const scanCommand = new Command('scan')
@@ -267,8 +346,18 @@ export const scanCommand = new Command('scan')
       // Output to file if specified
       if (options.output) {
         spinner.text = 'Writing output...';
-        // Write to file (handled by report generation)
-        spinner.succeed(`Output written to ${options.output}`);
+        try {
+          const outputDir = dirname(options.output);
+          if (!existsSync(outputDir)) {
+            mkdirSync(outputDir, { recursive: true });
+          }
+
+          const reportContent = generateReport(results, target, durationMs, scanId, options.format);
+          writeFileSync(options.output, reportContent, 'utf-8');
+          spinner.succeed(`Output written to ${options.output}`);
+        } catch (writeError) {
+          spinner.fail(`Failed to write output: ${writeError instanceof Error ? writeError.message : 'Unknown error'}`);
+        }
       }
 
       // Clean up
