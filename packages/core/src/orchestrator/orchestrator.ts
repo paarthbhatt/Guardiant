@@ -61,9 +61,9 @@ export class Orchestrator {
     const allParallelAgents = AGENT_EXECUTION_ORDER[1] ?? []; // All agents except recon
 
     // Filter agents if specific agents are requested
-    const requestedAgents = config.agents?.filter(a => a !== 'recon' && a !== 'exploit' && a !== 'fix');
+    const requestedAgents = (config.agents as string[] | undefined)?.filter(a => a !== 'recon' && a !== 'all');
     const parallelAgents = requestedAgents && requestedAgents.length > 0
-      ? allParallelAgents.filter(id => (requestedAgents as string[]).includes(id))
+      ? allParallelAgents.filter(id => requestedAgents.includes(id))
       : allParallelAgents;
 
     const agentPromises = parallelAgents.map(async (agentId) => {
