@@ -68,9 +68,9 @@
     "zod": "^3.24.1"
   },
   "devDependencies": {
-    "@types/node": "^25.5.2",
+    "@types/node": "^26.0.0",
     "@types/react": "^18.3.14",
-    "typescript": "^6.0.2",
+    "typescript": "^6.0.3",
     "vitest": "^2.1.8"
   },
   "engines": {

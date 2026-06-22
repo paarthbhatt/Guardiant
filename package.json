@@ -44,10 +44,10 @@
     "web": "pnpm --filter @guardiant/web dev"
   },
   "devDependencies": {
-    "@types/node": "^25.5.2",
+    "@types/node": "^26.0.0",
     "prettier": "^3.4.2",
     "turbo": "^2.8.17",
-    "typescript": "^6.0.2"
+    "typescript": "^6.0.3"
   },
   "packageManager": "pnpm@9.15.0",
   "engines": {
