@@ -6,12 +6,41 @@ import { VCVF_PATTERNS, type VCVFPatternDefinition } from '@guardiant/shared';
  *
  * Detects patterns unique to AI-generated code that indicate
  * higher likelihood of security vulnerabilities.
+ *
+ * Supports:
+ * - Injected patterns from YAML rule loader
+ * - Negative suppressors (skip pattern if suppressor found in same file)
+ * - Exclude patterns (skip files matching exclude globs)
  */
 export class VCVFMatcher {
   private patterns: VCVFPatternDefinition[];
+  private negativeSuppressors: Map<string, string[]>;
+  private excludePatterns: Map<string, string[]>;
+  private minPatternsRequired: Map<string, number>;
 
-  constructor() {
-    this.patterns = VCVF_PATTERNS;
+  constructor(patterns?: VCVFPatternDefinition[]) {
+    this.patterns = patterns ?? VCVF_PATTERNS;
+    this.negativeSuppressors = new Map();
+    this.excludePatterns = new Map();
+    this.minPatternsRequired = new Map();
+
+    // Extract runtime-only properties from extended definitions
+    for (const p of this.patterns) {
+      const ext = p as VCVFPatternDefinition & {
+        negativeSuppressors?: string[];
+        excludePatterns?: string[];
+        minPatternsRequired?: number;
+      };
+      if (ext.negativeSuppressors) {
+        this.negativeSuppressors.set(p.type, ext.negativeSuppressors);
+      }
+      if (ext.excludePatterns) {
+        this.excludePatterns.set(p.type, ext.excludePatterns);
+      }
+      if (ext.minPatternsRequired) {
+        this.minPatternsRequired.set(p.type, ext.minPatternsRequired);
+      }
+    }
   }
 
   /**
@@ -38,23 +67,25 @@ export class VCVFMatcher {
     code: string,
     filePath: string
   ): VCVFFingerprint | null {
+    // Check exclude patterns — skip files matching any exclude glob
+    const excludes = this.excludePatterns.get(pattern.type) ?? [];
+    for (const excludeGlob of excludes) {
+      if (this.fileMatchesGlob(filePath, excludeGlob)) {
+        return null;
+      }
+    }
+
     // Check file pattern first
-    const fileMatches = pattern.filePatterns.some(fp => {
-      // Convert glob pattern to regex
-      // Handle **/ as a unit to properly match zero or more directories
-      let regexPattern = fp
-        .replace(/\*\*\//g, '___GLOBSTAR___') // Replace **/ as a unit first
-        .replace(/\*/g, '___STAR___')         // Replace remaining * 
-        .replace(/\./g, '\\.')                 // Escape literal dots
-        .replace(/\{([^}]+)\}/g, (_, alternatives) => `(${alternatives.replace(/,/g, '|')})`) // Brace expansion
-        .replace(/___GLOBSTAR___/g, '(?:.*/)?') // **/ becomes optional "anything ending in slash"
-        .replace(/___STAR___/g, '[^/]*');       // * becomes "zero or more non-slash"
-      
-      const regex = new RegExp(`^${regexPattern}$`);
-      return regex.test(filePath);
-    });
+    const fileMatches = pattern.filePatterns.some(fp => this.fileMatchesGlob(filePath, fp));
 
     if (!fileMatches && pattern.filePatterns.length > 0) {
+      return null;
+    }
+
+    // Check negative suppressors — if any suppressor keyword is found in the
+    // same file, skip this pattern match entirely
+    const suppressors = this.negativeSuppressors.get(pattern.type) ?? [];
+    if (suppressors.length > 0 && this.hasNegativeSuppressor(code, suppressors)) {
       return null;
     }
 
@@ -89,6 +120,12 @@ export class VCVFMatcher {
     }
 
     if (matches.length === 0) {
+      return null;
+    }
+
+    // Enforce minimum patterns required (from YAML config)
+    const minRequired = this.minPatternsRequired.get(pattern.type);
+    if (minRequired && matches.length < minRequired) {
       return null;
     }
 
@@ -230,11 +267,37 @@ export class VCVFMatcher {
 
     return { correlated, uncorrelated, predictions: predictionResults };
   }
+
+  /**
+   * Check if code contains any negative suppressor keywords.
+   * If found, the pattern match should be skipped for this file.
+   */
+  private hasNegativeSuppressor(code: string, suppressors: string[]): boolean {
+    for (const suppressor of suppressors) {
+      if (code.includes(suppressor)) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Check if a file path matches a glob pattern.
+   */
+  private fileMatchesGlob(filePath: string, glob: string): boolean {
+    let regexPattern = glob
+      .replace(/\*\*\//g, '___GLOBSTAR___')
+      .replace(/\*/g, '___STAR___')
+      .replace(/\./g, '\\.')
+      .replace(/\{([^}]+)\}/g, (_, alternatives: string) => `(${alternatives.replace(/,/g, '|')})`)
+      .replace(/___GLOBSTAR___/g, '(?:.*/)?')
+      .replace(/___STAR___/g, '[^/]*');
+    const regex = new RegExp(`^${regexPattern}$`);
+    return regex.test(filePath);
+  }
 }
 
 /**
- * Create VCVF matcher
+ * Create VCVF matcher with optional injected patterns
  */
-export function createVCVFMatcher(): VCVFMatcher {
-  return new VCVFMatcher();
+export function createVCVFMatcher(patterns?: VCVFPatternDefinition[]): VCVFMatcher {
+  return new VCVFMatcher(patterns);
 }

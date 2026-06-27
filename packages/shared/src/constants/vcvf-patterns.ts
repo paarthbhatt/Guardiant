@@ -140,8 +140,12 @@ export const VCVF_PATTERNS: VCVFPatternDefinition[] = [
     filePatterns: ['**/api/**/*.{ts,js}', '**/routes/**/*.{ts,js}', '**/pages/api/**/*.{ts,js}'],
     codePatterns: [
       {
-        pattern: /(?:req\.(?:body|query|params)\.\w+)\s*(?!==|!==|\|\||&&|\?\.)/gi,
-        description: 'Direct request data access without validation',
+        // FIXED: Only match direct usage of request data without any validation.
+        // The old pattern matched ANY Express.js route reading req.body — that's normal.
+        // This version requires evidence of direct use: in DB query, sent as response,
+        // or passed to dangerous sink without validation.
+        pattern: /(?:req\.(?:body|query|params)\.\w+)\s*(?:\)\s*;?\s*$|\s*\.where|\s*\.select|\s*\.insert|\s*\.update|\s*\.delete|\s*\|\||\s*res\.(?:json|send))/gm,
+        description: 'Request data used directly without validation in query or response',
         weight: 0.9,
         isVulnerability: true,
       },
