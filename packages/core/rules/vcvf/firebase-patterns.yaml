@@ -1,0 +1,25 @@
+name: "Firebase Vulnerability Patterns"
+version: "1.0.0"
+rules:
+  - id: "firebase-insecure-db-rules"
+    name: "Insecure Firebase DB Rules"
+    description: "Detects Firebase rules allowing public read or write access."
+    severity: "critical"
+    patterns:
+      - type: "code"
+        language: "json"
+        pattern: '".read":\\s*"true"'
+      - type: "code"
+        language: "json"
+        pattern: '".write":\\s*"true"'
+    remediation: "Require authentication for database operations using 'auth != null'."
+  
+  - id: "firebase-client-admin"
+    name: "Firebase Admin SDK in Client"
+    description: "Detects the use of Firebase Admin SDK in client-side code."
+    severity: "critical"
+    patterns:
+      - type: "code"
+        language: "typescript"
+        pattern: 'import.*firebase-admin'
+    remediation: "Move Firebase Admin SDK usage to a secure backend or cloud function."

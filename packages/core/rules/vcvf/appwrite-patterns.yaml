@@ -1,0 +1,24 @@
+name: "Appwrite Vulnerability Patterns"
+version: "1.0.0"
+rules:
+  - id: "appwrite-client-key"
+    name: "Appwrite Server API Key in Client"
+    description: "Detects the use of an Appwrite Server API key in client-side code."
+    severity: "critical"
+    patterns:
+      - type: "code"
+        language: "typescript"
+        pattern: 'client\\.setKey\\(.*\\)'
+    remediation: "Never use Server API keys in client-side applications. Use Session authentication instead."
+  
+  - id: "appwrite-public-bucket"
+    name: "Public Appwrite Storage Bucket"
+    description: "Detects storage buckets configured with public read/write permissions."
+    severity: "high"
+    patterns:
+      - type: "baas"
+        provider: "appwrite"
+        service: "storage"
+        permissions:
+          - "role:all"
+    remediation: "Restrict storage bucket access to authenticated users or specific roles."

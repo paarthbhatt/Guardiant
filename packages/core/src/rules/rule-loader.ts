@@ -2,7 +2,7 @@ import { readFileSync, readdirSync, existsSync } from 'fs';
 import { join, extname } from 'path';
 import { z } from 'zod';
 import * as yaml from 'js-yaml';
-import type { VCVFPatternDefinition, CodePattern, VCVFPredictedVulnerability } from '@guardiant/shared';
+import type { VCVFPatternDefinition, CodePattern, AstPattern, VCVFPredictedVulnerability } from '@guardiant/shared';
 import { VCVF_PATTERNS } from '@guardiant/shared';
 import { createLogger } from '@guardiant/shared';
 
@@ -24,6 +24,15 @@ const PredictedVulnSchema = z.object({
   reason: z.string(),
 });
 
+const AstPatternSchema = z.object({
+  node_type: z.string(),
+  method_names: z.array(z.string()).optional(),
+  object_names: z.array(z.string()).optional(),
+  description: z.string(),
+  weight: z.number().min(0).max(1),
+  is_vulnerability: z.boolean().default(false),
+});
+
 const VCVFRuleSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -33,6 +42,7 @@ const VCVFRuleSchema = z.object({
   file_patterns: z.array(z.string()).default([]),
   exclude_patterns: z.array(z.string()).default([]),
   code_patterns: z.array(CodePatternSchema),
+  ast_patterns: z.array(AstPatternSchema).optional(),
   negative_suppressors: z.array(z.string()).default([]),
   min_patterns_required: z.number().min(1).optional(),
   predicted_vulnerabilities: z.array(PredictedVulnSchema),
@@ -204,6 +214,15 @@ export class RuleLoader {
       owaspCategory: pv.owasp,
     }));
 
+    const astPatterns: AstPattern[] | undefined = rule.ast_patterns?.map(ap => ({
+      nodeType: ap.node_type,
+      methodNames: ap.method_names,
+      objectNames: ap.object_names,
+      description: ap.description,
+      weight: ap.weight,
+      isVulnerability: ap.is_vulnerability,
+    }));
+
     return {
       type: rule.id as VCVFPatternDefinition['type'],
       name: rule.name,
@@ -212,6 +231,7 @@ export class RuleLoader {
       filePatterns: rule.file_patterns,
       codePatterns,
       predictedVulnerabilities,
+      ...(astPatterns && { astPatterns }),
       // Store negative suppressors and exclude patterns on the definition
       // (extending the interface at runtime)
       ...(rule.negative_suppressors.length > 0 && { negativeSuppressors: rule.negative_suppressors }),

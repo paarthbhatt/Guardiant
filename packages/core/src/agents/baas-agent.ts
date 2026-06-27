@@ -206,6 +206,10 @@ Check for:
     const authFindings = await this.checkFirebaseAuthRequirements(context);
     findings.push(...authFindings);
 
+    // Test 5: Live Firestore API querying
+    const liveFirestoreFindings = await this.testLiveFirestoreRules(context);
+    findings.push(...liveFirestoreFindings);
+
     return findings;
   }
 
@@ -411,7 +415,9 @@ const supabase = createClient(
       try {
         // Try to access table without auth - if we get data, RLS might be missing
         const testUrl = `${supabaseUrl}/rest/v1/${table}?select=*&limit=1`;
-        const headers: Record<string, string> = {};
+        const headers: Record<string, string> = {
+          'Prefer': 'return=representation'
+        };
         if (anonKey) {
           headers['apikey'] = anonKey;
           headers['Authorization'] = `Bearer ${anonKey}`;
@@ -419,19 +425,37 @@ const supabase = createClient(
           // Without a real anon key we can't reliably test RLS — skip
           continue;
         }
+        
+        let hasRead = false;
+        let hasWrite = false;
+
         const response = await this.httpClient.get(testUrl, headers);
 
         // If we get 200 with data, table is accessible without RLS
         if (response.status === 200 && response.body && !response.body.includes('error')) {
-          // Try to parse to see if it returns actual data
           try {
             const data = JSON.parse(response.body);
-            if (Array.isArray(data) && data.length > 0) {
-              tablesWithoutRLS.push(table);
+            if (Array.isArray(data) && data.length >= 0) {
+              hasRead = true;
             }
           } catch {
-            // Not valid JSON, might be RLS protected
+            // Not valid JSON
           }
+        }
+
+        // Test Write (Insert)
+        try {
+          const writeResponse = await this.httpClient.post(`${supabaseUrl}/rest/v1/${table}`, { guardiant_probe: 'test' }, headers);
+          if (writeResponse.status === 201) {
+            hasWrite = true;
+          }
+        } catch {
+          // blocked
+        }
+
+        if (hasRead || hasWrite) {
+          const accessType = hasRead && hasWrite ? 'Read/Write' : hasRead ? 'Read' : 'Write';
+          tablesWithoutRLS.push(`${table} (${accessType})`);
         }
       } catch {
         // Table might not exist or RLS is blocking
@@ -1168,6 +1192,96 @@ exports.adminAction = functions.https.onCall(async (data, context) => {
       // Continue on error
     }
 
+    return findings;
+  }
+
+  /**
+   * Extract Firebase project ID
+   */
+  private async extractFirebaseProjectId(context: AgentContext): Promise<string | null> {
+    const projectIdPattern = /projectId\s*:\s*['"`]([^'"`]+)['"`]/i;
+
+    if (context.target.type === 'directory') {
+      return null;
+    }
+
+    try {
+      const response = await this.httpClient.get(context.target.url);
+      const htmlMatch = projectIdPattern.exec(response.body);
+      if (htmlMatch?.[1]) return htmlMatch[1];
+      
+      const jsUrls = this.extractJavaScriptUrls(response.body, context.target.url);
+      for (const jsUrl of jsUrls.slice(0, 5)) {
+        try {
+          const jsResponse = await this.httpClient.get(jsUrl);
+          const match = projectIdPattern.exec(jsResponse.body);
+          if (match?.[1]) return match[1];
+        } catch { }
+      }
+    } catch { }
+    
+    return null;
+  }
+
+  /**
+   * Test live Firestore security rules
+   */
+  private async testLiveFirestoreRules(context: AgentContext): Promise<Finding[]> {
+    const findings: Finding[] = [];
+    const projectId = await this.extractFirebaseProjectId(context);
+    if (!projectId) return findings;
+
+    const commonCollections = ['users', 'posts', 'messages', 'profiles', 'orders', 'products', 'comments'];
+    const publicCollections: string[] = [];
+
+    for (const collection of commonCollections) {
+      try {
+        const testUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/${collection}?pageSize=1`;
+        const response = await this.httpClient.get(testUrl);
+
+        if (response.status === 200 && response.body && !response.body.includes('error')) {
+          publicCollections.push(collection);
+        }
+      } catch {
+        // blocked by security rules
+      }
+    }
+
+    if (publicCollections.length > 0) {
+      findings.push(
+        createFinding(this.id)
+          .title('Public Firestore Collections Detected')
+          .description(
+            `The following Firestore collections are publicly readable without authentication: ${publicCollections.join(', ')}. ` +
+            `This indicates missing or misconfigured Firestore security rules, exposing database contents to unauthenticated users.`
+          )
+          .severity('critical')
+          .cvssScore(9.8)
+          .category('A01_BROKEN_ACCESS_CONTROL')
+          .confidence(0.95)
+          .evidence({
+            context: { collections: publicCollections, public: true },
+          })
+          .remediation({
+            summary: 'Update Firestore security rules to restrict public access.',
+            steps: [
+              'Go to Firebase Console > Firestore > Rules',
+              'Remove "allow read: if true;" for sensitive collections',
+              'Require authentication (request.auth != null)',
+              'Implement resource ownership checks'
+            ],
+            codeExample: `// Secure Rules
+match /${publicCollections[0]}/{docId} {
+  allow read: if request.auth != null;
+}`,
+            effort: 'medium',
+            priority: 1,
+          })
+          .tags(['firebase', 'firestore', 'critical', 'public-access'])
+          .vcvfPattern('baas_bypass_architecture')
+          .build()
+      );
+    }
     return findings;
   }
 
