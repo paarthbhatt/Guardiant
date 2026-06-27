@@ -190,8 +190,7 @@ describe('CVC → TIEF chained pipeline', () => {
 
         // Optimistic trust
         function createPost(req, res) {
-          const post = req.body;
-          db.posts.create(post);
+          db.posts.create(req.body.postData);
         }
 
         // Missing error handling
