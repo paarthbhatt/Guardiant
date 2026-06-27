@@ -72,6 +72,8 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
+    "@babel/parser": "^8.0.0",
+    "@babel/traverse": "^8.0.0",
     "@google/generative-ai": "^0.21.0",
     "@guardiant/database": "workspace:*",
     "@guardiant/queue": "workspace:*",
@@ -83,6 +85,8 @@
     "zod-to-json-schema": "^3.25.1"
   },
   "devDependencies": {
+    "@babel/types": "^8.0.0",
+    "@types/babel__traverse": "^7.28.0",
     "typescript": "^6.0.2",
     "vitest": "^2.1.8"
   }
