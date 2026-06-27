@@ -1,7 +1,7 @@
 import { readFileSync, readdirSync, existsSync } from 'fs';
 import { join, extname } from 'path';
 import { z } from 'zod';
-import yaml from 'js-yaml';
+import * as yaml from 'js-yaml';
 import type { VCVFPatternDefinition, CodePattern, VCVFPredictedVulnerability } from '@guardiant/shared';
 import { VCVF_PATTERNS } from '@guardiant/shared';
 import { createLogger } from '@guardiant/shared';
