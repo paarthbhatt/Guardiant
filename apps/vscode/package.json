@@ -1,0 +1,55 @@
+{
+  "name": "guardiant-vscode",
+  "displayName": "Guardiant Security",
+  "description": "Real-time AI-powered vulnerability detection for VS Code",
+  "version": "0.3.0",
+  "publisher": "paarthbhatt",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Linters",
+    "Security"
+  ],
+  "activationEvents": [
+    "onLanguage:javascript",
+    "onLanguage:typescript",
+    "onLanguage:python",
+    "onLanguage:json"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "guardiant.scanWorkspace",
+        "title": "Guardiant: Scan Workspace"
+      }
+    ],
+    "configuration": {
+      "title": "Guardiant",
+      "properties": {
+        "guardiant.enableRealTimeScanning": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable real-time security scanning as you type"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run package",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node"
+  },
+  "dependencies": {
+    "@guardiant/core": "workspace:*",
+    "@guardiant/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.80.0",
+    "esbuild": "^0.20.0",
+    "typescript": "^5.0.0"
+  }
+}
