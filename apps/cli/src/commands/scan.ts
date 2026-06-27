@@ -11,6 +11,8 @@ import { createLogger, formatDuration, formatSeverity, formatFindingsSummary, An
 import type { ScanConfig, AgentId, AgentResult, Finding } from '@guardiant/shared';
 import { parseScanArgs } from '../validation/scan-args.js';
 
+import { formatAsSarif } from '@guardiant/core';
+
 // Generate a simple scan ID if database is unavailable
 function generateScanId(): string {
   return `scan-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
@@ -23,6 +25,21 @@ function generateReport(
   scanId: string,
   format: string
 ): string {
+  if (format === 'sarif') {
+    return formatAsSarif({
+      id: scanId,
+      scanId,
+      target,
+      timestamp: new Date().toISOString(),
+      duration: durationMs,
+      findings: results.findings,
+      chains: results.chains as any,
+      trustInversions: results.trustInversions as any,
+      agentResults: results.agentResults,
+      vcvfFingerprints: [],
+    });
+  }
+
   if (format === 'json') {
     return JSON.stringify({
       scanId,
@@ -158,7 +175,9 @@ export const scanCommand = new Command('scan')
   .option('--timeout <ms>', 'Scan timeout in milliseconds', '600000')
   .option('--stop-on-critical', 'Stop scan on critical finding', false)
   .option('-o, --output <path>', 'Output file path')
-  .option('-f, --format <format>', 'Output format (json, markdown, html)', 'markdown')
+  .option('-f, --format <format>', 'Output format (json, markdown, html, sarif)', 'markdown')
+  .option('--incremental', 'Run incremental scan based on git diff', false)
+  .option('--base-ref <ref>', 'Base git reference for incremental scan', 'HEAD~1')
   .action(async (target: string, options) => {
     const spinner = ora('Initializing scan...').start();
     const logger = createLogger({ level: 'info' });
@@ -176,6 +195,8 @@ export const scanCommand = new Command('scan')
         skipAnalysis: options.skipAnalysis,
         format: options.format,
         output: options.output,
+        incremental: options.incremental,
+        baseRef: options.baseRef,
       };
 
       const validatedArgs = parseScanArgs(rawArgs);

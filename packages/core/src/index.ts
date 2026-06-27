@@ -9,3 +9,4 @@ export * from './scanner/index.js';
 export * from './classifier/index.js';
 export * from './validators/index.js';
 export * from './rules/index.js';
+export * from './report/index.js';

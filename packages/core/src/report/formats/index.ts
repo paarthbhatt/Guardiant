@@ -7,6 +7,8 @@ export function formatAsJson(report: Report): string {
 	return JSON.stringify(report, null, 2);
 }
 
+export * from './sarif.js';
+
 /**
  * Format report as Markdown
  */
@@ -144,7 +146,7 @@ export function formatAsMarkdown(report: Report, audience: ReportAudience): stri
 }
 
 /**
- * Format report as HTML
+ * Format report as HTML (Premium Dark Mode Interactive)
  */
 export function formatAsHtml(report: Report, _audience: ReportAudience): string {
 	const stats = {
@@ -154,167 +156,301 @@ export function formatAsHtml(report: Report, _audience: ReportAudience): string 
 		low: report.findings.filter(f => f.severity === 'low').length,
 		info: report.findings.filter(f => f.severity === 'info').length,
 	};
+    
+    const total = report.findings.length;
+    // Donut chart stroke-dasharray calculations (circumference = 100)
+    let offset = 0;
+    const criticalPct = total ? (stats.critical / total) * 100 : 0;
+    const highPct = total ? (stats.high / total) * 100 : 0;
+    const mediumPct = total ? (stats.medium / total) * 100 : 0;
+    const lowPct = total ? (stats.low / total) * 100 : 0;
 
 	return `<!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="dark">
 <head>
 	<meta charset="UTF-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1.0">
-	<title>Security Scan Report - ${report.target}</title>
+	<title>Guardiant Security Report - ${report.target}</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 	<style>
+		:root {
+            --bg-base: #0f172a;
+            --bg-surface: #1e293b;
+            --bg-card: #334155;
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --accent: #3b82f6;
+            --critical: #ef4444;
+            --high: #f97316;
+            --medium: #eab308;
+            --low: #22c55e;
+            --info: #64748b;
+        }
 		* { box-sizing: border-box; margin: 0; padding: 0; }
-		body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #1f2937; background: #f9fafb; }
-		.container { max-width: 1200px; margin: 0 auto; padding: 2rem; }
-		h1 { font-size: 2rem; margin-bottom: 0.5rem; }
-		h2 { font-size: 1.5rem; margin: 2rem 0 1rem; color: #111827; }
-		h3 { font-size: 1.25rem; margin: 1.5rem 0 0.75rem; }
-		.header { background: linear-gradient(135deg, #1f2937 0%, #374151 100%); color: white; padding: 2rem; border-radius: 0.5rem; margin-bottom: 2rem; }
-		.header h1 { color: white; }
-		.meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-top: 1rem; }
-		.meta-item { background: rgba(255,255,255,0.1); padding: 0.75rem; border-radius: 0.25rem; }
-		.meta-label { font-size: 0.75rem; text-transform: uppercase; color: #9ca3af; }
-		.meta-value { font-size: 1.125rem; font-weight: 600; }
-		.card { background: white; border-radius: 0.5rem; padding: 1.5rem; margin-bottom: 1rem; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
-		.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 1rem; }
-		.stat { text-align: center; padding: 1rem; border-radius: 0.5rem; }
-		.stat-value { font-size: 2rem; font-weight: 700; }
-		.stat-label { font-size: 0.75rem; text-transform: uppercase; }
-		.critical { background: #fef2f2; }
-		.critical .stat-value { color: #dc2626; }
-		.high { background: #fff7ed; }
-		.high .stat-value { color: #ea580c; }
-		.medium { background: #fffbeb; }
-		.medium .stat-value { color: #d97706; }
-		.low { background: #ecfdf5; }
-		.low .stat-value { color: #059669; }
-		.severity { display: inline-block; padding: 0.25rem 0.5rem; border-radius: 0.25rem; font-size: 0.75rem; font-weight: 600; color: white; }
-		.severity.critical { background: #dc2626; }
-		.severity.high { background: #ea580c; }
-		.severity.medium { background: #d97706; }
-		.severity.low { background: #059669; }
-		.severity.info { background: #6b7280; }
-		.finding { border-left: 4px solid; margin-bottom: 1rem; padding-left: 1rem; }
-		.finding.critical { border-color: #dc2626; }
-		.finding.high { border-color: #ea580c; }
-		.finding.medium { border-color: #d97706; }
-		.finding.low { border-color: #059669; }
-		.finding.info { border-color: #6b7280; }
-		.finding-header { display: flex; justify-content: space-between; align-items: start; margin-bottom: 0.5rem; }
-		.finding-title { font-weight: 600; }
-		.finding-meta { font-size: 0.875rem; color: #6b7280; }
-		code { background: #f3f4f6; padding: 0.125rem 0.25rem; border-radius: 0.25rem; font-size: 0.875rem; }
-		pre { background: #1f2937; color: #f9fafb; padding: 1rem; border-radius: 0.5rem; overflow-x: auto; margin: 1rem 0; }
-		pre code { background: none; padding: 0; color: inherit; }
-		ul { margin-left: 1.5rem; }
-		.badge { display: inline-block; padding: 0.125rem 0.5rem; border-radius: 9999px; font-size: 0.75rem; background: #e5e7eb; margin-right: 0.5rem; }
-		.section { margin-top: 2rem; }
+		body { font-family: 'Inter', sans-serif; line-height: 1.6; color: var(--text-main); background: var(--bg-base); }
+		.container { max-width: 1400px; margin: 0 auto; padding: 2rem; display: grid; grid-template-columns: 250px 1fr; gap: 2rem; }
+		@media (max-width: 768px) { .container { grid-template-columns: 1fr; } }
+        
+        /* Sidebar Navigation */
+        nav { position: sticky; top: 2rem; align-self: start; background: var(--bg-surface); padding: 1.5rem; border-radius: 12px; border: 1px solid rgba(255,255,255,0.05); }
+        nav h3 { font-size: 0.875rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); margin-bottom: 1rem; }
+        nav ul { list-style: none; }
+        nav li { margin-bottom: 0.5rem; }
+        nav a { color: var(--text-main); text-decoration: none; display: block; padding: 0.5rem; border-radius: 6px; transition: background 0.2s; font-size: 0.95rem; }
+        nav a:hover { background: var(--bg-card); }
+        
+        /* Main Content */
+        .content { min-width: 0; }
+        
+		h1 { font-size: 2.5rem; font-weight: 700; margin-bottom: 0.5rem; letter-spacing: -0.02em; }
+		h2 { font-size: 1.75rem; margin: 3rem 0 1.5rem; color: var(--text-main); font-weight: 600; border-bottom: 1px solid var(--bg-card); padding-bottom: 0.5rem; }
+		
+		.header-card { background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); padding: 2.5rem; border-radius: 16px; border: 1px solid rgba(255,255,255,0.1); margin-bottom: 2rem; position: relative; overflow: hidden; }
+        .header-card::before { content: ''; position: absolute; top: -50%; left: -50%; width: 200%; height: 200%; background: radial-gradient(circle, rgba(59,130,246,0.1) 0%, transparent 50%); pointer-events: none; }
+        
+		.meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1.5rem; margin-top: 2rem; }
+		.meta-item { background: rgba(0,0,0,0.2); padding: 1rem; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05); }
+		.meta-label { font-size: 0.75rem; text-transform: uppercase; color: var(--text-muted); font-weight: 600; letter-spacing: 0.05em; margin-bottom: 0.25rem; }
+		.meta-value { font-size: 1.25rem; font-weight: 600; font-family: monospace; }
+        
+        /* Dashboard Layout */
+        .dashboard-grid { display: grid; grid-template-columns: 300px 1fr; gap: 2rem; margin-bottom: 3rem; }
+        @media (max-width: 1024px) { .dashboard-grid { grid-template-columns: 1fr; } }
+        
+        /* Donut Chart */
+        .chart-card { background: var(--bg-surface); padding: 2rem; border-radius: 16px; border: 1px solid rgba(255,255,255,0.05); display: flex; flex-direction: column; align-items: center; justify-content: center; }
+        svg.donut { width: 100%; max-width: 200px; height: 100%; transform: rotate(-90deg); border-radius: 50%; }
+        .donut-segment { fill: transparent; stroke-width: 15; }
+        .chart-legend { display: flex; flex-wrap: wrap; gap: 1rem; justify-content: center; margin-top: 1.5rem; }
+        .legend-item { display: flex; align-items: center; font-size: 0.875rem; color: var(--text-muted); }
+        .legend-color { width: 12px; height: 12px; border-radius: 50%; margin-right: 6px; }
+        
+		.stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 1rem; align-content: start; }
+		.stat { padding: 1.5rem; border-radius: 12px; background: var(--bg-surface); border: 1px solid rgba(255,255,255,0.05); text-align: center; transition: transform 0.2s; }
+        .stat:hover { transform: translateY(-2px); }
+		.stat-value { font-size: 2.5rem; font-weight: 700; margin-bottom: 0.5rem; line-height: 1; }
+		.stat-label { font-size: 0.875rem; text-transform: uppercase; font-weight: 600; letter-spacing: 0.05em; }
+        
+        /* Severities */
+		.critical { border-top: 3px solid var(--critical) !important; }
+		.critical .stat-value { color: var(--critical); }
+		.high { border-top: 3px solid var(--high) !important; }
+		.high .stat-value { color: var(--high); }
+		.medium { border-top: 3px solid var(--medium) !important; }
+		.medium .stat-value { color: var(--medium); }
+		.low { border-top: 3px solid var(--low) !important; }
+		.low .stat-value { color: var(--low); }
+        
+		.severity-badge { display: inline-block; padding: 0.25rem 0.75rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; }
+		.badge-critical { background: rgba(239, 68, 68, 0.2); color: #fca5a5; border: 1px solid rgba(239, 68, 68, 0.3); }
+		.badge-high { background: rgba(249, 115, 22, 0.2); color: #fdba74; border: 1px solid rgba(249, 115, 22, 0.3); }
+		.badge-medium { background: rgba(234, 179, 8, 0.2); color: #fde047; border: 1px solid rgba(234, 179, 8, 0.3); }
+		.badge-low { background: rgba(34, 197, 94, 0.2); color: #86efac; border: 1px solid rgba(34, 197, 94, 0.3); }
+		.badge-info { background: rgba(100, 116, 139, 0.2); color: #cbd5e1; border: 1px solid rgba(100, 116, 139, 0.3); }
+
+        /* Finding Cards */
+		.finding { background: var(--bg-surface); border-radius: 12px; margin-bottom: 1.5rem; overflow: hidden; border: 1px solid rgba(255,255,255,0.05); transition: all 0.2s; }
+        .finding:hover { border-color: rgba(255,255,255,0.1); box-shadow: 0 4px 20px rgba(0,0,0,0.2); }
+        .finding-summary { padding: 1.5rem; cursor: pointer; display: flex; justify-content: space-between; align-items: center; }
+		.finding-title { font-weight: 600; font-size: 1.125rem; display: flex; align-items: center; gap: 1rem; }
+		.finding-meta { font-size: 0.875rem; color: var(--text-muted); display: flex; gap: 1rem; margin-top: 0.5rem; }
+        
+        .finding-details { padding: 0 1.5rem 1.5rem; display: none; border-top: 1px solid var(--bg-card); margin-top: 1rem; padding-top: 1.5rem; }
+        .finding.expanded .finding-details { display: block; animation: slideDown 0.3s ease-out; }
+        @keyframes slideDown { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+
+        /* Code Blocks */
+		pre { background: #0f172a; color: #e2e8f0; padding: 1.25rem; border-radius: 8px; overflow-x: auto; margin: 1rem 0; border: 1px solid rgba(255,255,255,0.05); font-family: 'JetBrains Mono', monospace; font-size: 0.875rem; line-height: 1.5; }
+		code { font-family: 'JetBrains Mono', monospace; }
+        :not(pre) > code { background: rgba(255,255,255,0.1); padding: 0.2rem 0.4rem; border-radius: 4px; font-size: 0.875rem; }
+        
+        .remediation { background: rgba(59, 130, 246, 0.1); border-left: 4px solid var(--accent); padding: 1.5rem; border-radius: 0 8px 8px 0; margin-top: 1.5rem; }
+        .remediation h4 { color: #93c5fd; margin-bottom: 0.5rem; }
+        .remediation ul { margin-left: 1.5rem; margin-top: 0.5rem; }
+
+        /* Controls */
+        .controls { display: flex; gap: 1rem; margin-bottom: 1.5rem; }
+        select, input { background: var(--bg-card); color: white; border: 1px solid rgba(255,255,255,0.1); padding: 0.5rem 1rem; border-radius: 6px; font-family: inherit; }
+        select:focus, input:focus { outline: none; border-color: var(--accent); }
+
 	</style>
+    <script>
+        function toggleFinding(element) {
+            element.closest('.finding').classList.toggle('expanded');
+        }
+        function filterFindings() {
+            const severity = document.getElementById('severity-filter').value;
+            const search = document.getElementById('search-input').value.toLowerCase();
+            const findings = document.querySelectorAll('.finding');
+            
+            findings.forEach(f => {
+                const isSeverity = severity === 'all' || f.dataset.severity === severity;
+                const isSearch = f.textContent.toLowerCase().includes(search);
+                f.style.display = isSeverity && isSearch ? 'block' : 'none';
+            });
+        }
+    </script>
 </head>
 <body>
 	<div class="container">
-		<div class="header">
-			<h1>Security Scan Report</h1>
-			<p>Target: <strong>${report.target}</strong></p>
-			<div class="meta">
-				<div class="meta-item">
-					<div class="meta-label">Scan ID</div>
-					<div class="meta-value">${report.scanId}</div>
-				</div>
-				<div class="meta-item">
-					<div class="meta-label">Timestamp</div>
-					<div class="meta-value">${new Date(report.timestamp).toLocaleString()}</div>
-				</div>
-				<div class="meta-item">
-					<div class="meta-label">Duration</div>
-					<div class="meta-value">${formatDuration(report.duration)}</div>
-				</div>
-				<div class="meta-item">
-					<div class="meta-label">Total Findings</div>
-					<div class="meta-value">${report.findings.length}</div>
-				</div>
-			</div>
-		</div>
+        <nav>
+            <h3>Navigation</h3>
+            <ul>
+                <li><a href="#summary">Summary Dashboard</a></li>
+                ${report.chains.length > 0 ? '<li><a href="#chains">Exploit Chains</a></li>' : ''}
+                ${report.trustInversions.length > 0 ? '<li><a href="#trust">Trust Inversions</a></li>' : ''}
+                <li><a href="#findings">Detailed Findings</a></li>
+            </ul>
+        </nav>
 
-		<div class="card">
-			<h2>Vulnerability Summary</h2>
-			<div class="stats">
-				<div class="stat critical">
-					<div class="stat-value">${stats.critical}</div>
-					<div class="stat-label">Critical</div>
-				</div>
-				<div class="stat high">
-					<div class="stat-value">${stats.high}</div>
-					<div class="stat-label">High</div>
-				</div>
-				<div class="stat medium">
-					<div class="stat-value">${stats.medium}</div>
-					<div class="stat-label">Medium</div>
-				</div>
-				<div class="stat low">
-					<div class="stat-value">${stats.low}</div>
-					<div class="stat-label">Low</div>
-				</div>
-				<div class="stat">
-					<div class="stat-value" style="color: #6b7280">${stats.info}</div>
-					<div class="stat-label">Info</div>
-				</div>
-			</div>
-		</div>
+        <div class="content">
+            <div class="header-card">
+                <h1>Guardiant Security Report</h1>
+                <p style="color: var(--text-muted); font-size: 1.125rem;">Target: <strong>${report.target}</strong></p>
+                <div class="meta">
+                    <div class="meta-item">
+                        <div class="meta-label">Scan ID</div>
+                        <div class="meta-value">${report.scanId.split('-').slice(0, 2).join('-')}</div>
+                    </div>
+                    <div class="meta-item">
+                        <div class="meta-label">Timestamp</div>
+                        <div class="meta-value">${new Date(report.timestamp).toLocaleString()}</div>
+                    </div>
+                    <div class="meta-item">
+                        <div class="meta-label">Duration</div>
+                        <div class="meta-value">${formatDuration(report.duration)}</div>
+                    </div>
+                    <div class="meta-item">
+                        <div class="meta-label">Total Findings</div>
+                        <div class="meta-value">${report.findings.length}</div>
+                    </div>
+                </div>
+            </div>
 
-		${report.chains.length > 0 ? `
-		<div class="card section">
-			<h2>Compound Vulnerability Chains</h2>
-			${report.chains.map(chain => `
-				<div style="margin-bottom: 1rem; padding: 1rem; background: #fef2f2; border-radius: 0.5rem;">
-					<h3>${chain.id}</h3>
-					<p><strong>Compound Severity:</strong> <span class="severity ${chain.compoundSeverity}">${chain.compoundSeverity.toUpperCase()}</span></p>
-					<p><strong>CVSS:</strong> ${chain.compoundCvssScore.toFixed(1)}</p>
-					<ul>
-						${chain.findings.map(f => `<li>${f.title}</li>`).join('')}
-					</ul>
-				</div>
-			`).join('')}
-		</div>
-		` : ''}
+            <h2 id="summary">Vulnerability Summary</h2>
+            <div class="dashboard-grid">
+                <div class="chart-card">
+                    <svg class="donut" viewBox="0 0 42 42">
+                        <circle cx="21" cy="21" r="15.91549430918954" fill="transparent" stroke="rgba(255,255,255,0.05)" stroke-width="6"></circle>
+                        ${criticalPct > 0 ? `<circle class="donut-segment" cx="21" cy="21" r="15.91549430918954" stroke="var(--critical)" stroke-dasharray="${criticalPct} ${100 - criticalPct}" stroke-dashoffset="${100 - offset}"></circle>` : ''}
+                        ${(offset += criticalPct) !== undefined ? '' : ''}
+                        ${highPct > 0 ? `<circle class="donut-segment" cx="21" cy="21" r="15.91549430918954" stroke="var(--high)" stroke-dasharray="${highPct} ${100 - highPct}" stroke-dashoffset="${100 - offset}"></circle>` : ''}
+                        ${(offset += highPct) !== undefined ? '' : ''}
+                        ${mediumPct > 0 ? `<circle class="donut-segment" cx="21" cy="21" r="15.91549430918954" stroke="var(--medium)" stroke-dasharray="${mediumPct} ${100 - mediumPct}" stroke-dashoffset="${100 - offset}"></circle>` : ''}
+                        ${(offset += mediumPct) !== undefined ? '' : ''}
+                        ${lowPct > 0 ? `<circle class="donut-segment" cx="21" cy="21" r="15.91549430918954" stroke="var(--low)" stroke-dasharray="${lowPct} ${100 - lowPct}" stroke-dashoffset="${100 - offset}"></circle>` : ''}
+                    </svg>
+                    <div class="chart-legend">
+                        <div class="legend-item"><div class="legend-color" style="background: var(--critical)"></div> Critical</div>
+                        <div class="legend-item"><div class="legend-color" style="background: var(--high)"></div> High</div>
+                        <div class="legend-item"><div class="legend-color" style="background: var(--medium)"></div> Medium</div>
+                        <div class="legend-item"><div class="legend-color" style="background: var(--low)"></div> Low</div>
+                    </div>
+                </div>
 
-		${report.trustInversions.length > 0 ? `
-		<div class="card section">
-			<h2>Trust Inversions Detected</h2>
-			${report.trustInversions.map(inv => `
-				<div style="margin-bottom: 1rem; padding: 1rem; background: #fff7ed; border-radius: 0.5rem;">
-					<h3>${inv.type}</h3>
-					<p><span class="severity ${inv.severity}">${inv.severity.toUpperCase()}</span></p>
-					<p><strong>Misplaced Trust:</strong> ${inv.misplacedTrust}</p>
-					<p><strong>Expected Boundary:</strong> ${inv.expectedBoundary}</p>
-					<p><strong>Actual Boundary:</strong> ${inv.actualBoundary}</p>
-				</div>
-			`).join('')}
-		</div>
-		` : ''}
+                <div class="stats-grid">
+                    <div class="stat critical">
+                        <div class="stat-value">${stats.critical}</div>
+                        <div class="stat-label">Critical</div>
+                    </div>
+                    <div class="stat high">
+                        <div class="stat-value">${stats.high}</div>
+                        <div class="stat-label">High</div>
+                    </div>
+                    <div class="stat medium">
+                        <div class="stat-value">${stats.medium}</div>
+                        <div class="stat-label">Medium</div>
+                    </div>
+                    <div class="stat low">
+                        <div class="stat-value">${stats.low}</div>
+                        <div class="stat-label">Low</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-value" style="color: var(--info)">${stats.info}</div>
+                        <div class="stat-label">Info</div>
+                    </div>
+                </div>
+            </div>
 
-		${report.findings.length > 0 ? `
-		<div class="card section">
-			<h2>Findings</h2>
-			${report.findings.map(finding => `
-				<div class="finding ${finding.severity}">
-					<div class="finding-header">
-						<div class="finding-title">${finding.title}</div>
-						<div><span class="severity ${finding.severity}">${finding.severity.toUpperCase()}</span></div>
-					</div>
-					<div class="finding-meta">
-						CVSS: ${finding.cvssScore} | Confidence: ${(finding.confidence * 100).toFixed(0)}% | ${finding.category}
-					</div>
-					<p style="margin-top: 0.5rem;">${finding.description}</p>
-					${finding.evidence.payload ? `
-						<pre><code>${escapeHtml(finding.evidence.payload)}</code></pre>
-					` : ''}
-					<div style="margin-top: 0.5rem;">
-						<strong>Remediation:</strong> ${finding.remediation.summary}
-					</div>
-				</div>
-			`).join('')}
-		</div>
-		` : ''}
+            ${report.chains.length > 0 ? `
+            <h2 id="chains">Exploit Chains</h2>
+            ${report.chains.map(chain => `
+                <div class="finding ${chain.compoundSeverity}">
+                    <div class="finding-summary" style="cursor: default;">
+                        <div>
+                            <div class="finding-title">
+                                <span class="severity-badge badge-${chain.compoundSeverity}">${chain.compoundSeverity}</span>
+                                ${chain.id}
+                            </div>
+                            <div class="finding-meta">CVSS: ${chain.compoundCvssScore.toFixed(1)}</div>
+                        </div>
+                    </div>
+                    <div style="padding: 0 1.5rem 1.5rem;">
+                        <ul style="margin-left: 1.5rem; color: var(--text-muted);">
+                            ${chain.findings.map(f => `<li><strong>${f.title}</strong> (${f.severity})</li>`).join('')}
+                        </ul>
+                    </div>
+                </div>
+            `).join('')}
+            ` : ''}
+
+            <h2 id="findings">Detailed Findings</h2>
+            
+            <div class="controls">
+                <select id="severity-filter" onchange="filterFindings()">
+                    <option value="all">All Severities</option>
+                    <option value="critical">Critical</option>
+                    <option value="high">High</option>
+                    <option value="medium">Medium</option>
+                    <option value="low">Low</option>
+                    <option value="info">Info</option>
+                </select>
+                <input type="text" id="search-input" placeholder="Search findings..." onkeyup="filterFindings()" style="flex: 1;">
+            </div>
+
+            <div id="findings-list">
+                ${report.findings.map(finding => `
+                    <div class="finding ${finding.severity}" data-severity="${finding.severity}">
+                        <div class="finding-summary" onclick="toggleFinding(this)">
+                            <div>
+                                <div class="finding-title">
+                                    <span class="severity-badge badge-${finding.severity}">${finding.severity}</span>
+                                    ${finding.title}
+                                </div>
+                                <div class="finding-meta">
+                                    <span><strong>Category:</strong> ${finding.category}</span>
+                                    <span><strong>CVSS:</strong> ${finding.cvssScore}</span>
+                                    <span><strong>Confidence:</strong> ${(finding.confidence * 100).toFixed(0)}%</span>
+                                </div>
+                            </div>
+                            <div style="color: var(--text-muted);">&#9660;</div>
+                        </div>
+                        <div class="finding-details">
+                            <p style="margin-bottom: 1.5rem; font-size: 1.05rem;">${finding.description}</p>
+                            
+                            ${finding.evidence.payload ? `
+                                <h4>Exploit Payload</h4>
+                                <pre><code>${escapeHtml(finding.evidence.payload)}</code></pre>
+                            ` : ''}
+                            
+                            ${finding.evidence.file ? `
+                                <p style="color: var(--text-muted); font-size: 0.875rem;">
+                                    Found in: <code>${finding.evidence.file}</code>${finding.evidence.line ? `:${finding.evidence.line}` : ''}
+                                </p>
+                            ` : ''}
+                            
+                            <div class="remediation">
+                                <h4>Remediation</h4>
+                                <p>${finding.remediation.summary}</p>
+                                <ul>
+                                    ${finding.remediation.steps.map(s => `<li>${s}</li>`).join('')}
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                `).join('')}
+            </div>
+        </div>
 	</div>
 </body>
 </html>`;
