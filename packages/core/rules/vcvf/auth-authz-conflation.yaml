@@ -1,0 +1,49 @@
+id: auth_authz_conflation
+name: "Authentication/Authorization Conflation"
+description: >
+  Vibe-coded apps frequently conflate authentication with authorization.
+  Authentication is implemented (user is logged in) but authorization is
+  missing (user can access other users' data).
+enabled: true
+confidence: 0.90
+file_patterns:
+  - "**/*.{ts,tsx,js,jsx}"
+  - "**/middleware/*.{ts,js}"
+exclude_patterns:
+  - "**/*.test.*"
+  - "**/*.spec.*"
+  - "**/node_modules/**"
+  - "**/__tests__/**"
+code_patterns:
+  - pattern: "(?:requireAuth|isAuthenticated|withAuth|authenticateToken)"
+    description: "Auth middleware presence"
+    weight: 0.8
+    is_vulnerability: false
+  - pattern: "(?:requireRole|isAuthorized|checkPermission|hasAccess)"
+    description: "Authorization middleware presence"
+    weight: 0.9
+    is_vulnerability: false
+  - pattern: "(?:req\\.user\\s*&&\\s*!req\\.user\\.(?:role|permissions|access))"
+    description: "User object without role checking"
+    weight: 0.95
+    is_vulnerability: true
+  - pattern: "(?:if\\s*\\(\\s*req\\.(?:session\\.(?:userId|user)|user(?:Id)?)\\s*\\))"
+    description: "Simple authentication check without authorization"
+    weight: 0.9
+    is_vulnerability: true
+negative_suppressors:
+  - "requireRole"
+  - "checkPermission"
+  - "hasAccess"
+  - "isAuthorized"
+  - "authorize"
+  - "rbac"
+predicted_vulnerabilities:
+  - type: privilege_escalation
+    probability: 0.85
+    owasp: A01_BROKEN_ACCESS_CONTROL
+    reason: "Auth check without authz check allows horizontal/vertical escalation"
+  - type: idor
+    probability: 0.80
+    owasp: A01_BROKEN_ACCESS_CONTROL
+    reason: "Missing ownership validation on resources"

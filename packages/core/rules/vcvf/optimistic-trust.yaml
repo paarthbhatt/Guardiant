@@ -1,0 +1,52 @@
+id: optimistic_trust_patterns
+name: "Optimistic Trust Patterns"
+description: >
+  AI-generated code often trusts client-side data without server-side
+  validation. This pattern detects direct use of request data in database
+  queries or responses without validation middleware.
+enabled: true
+confidence: 0.95
+file_patterns:
+  - "**/api/**/*.{ts,js}"
+  - "**/routes/**/*.{ts,js}"
+  - "**/pages/api/**/*.{ts,js}"
+  - "**/server/**/*.{ts,js}"
+exclude_patterns:
+  - "**/*.test.*"
+  - "**/*.spec.*"
+  - "**/node_modules/**"
+  - "**/__tests__/**"
+  - "**/mock*"
+code_patterns:
+  - pattern: "(?:req\\.(?:body|query|params)\\.\\w+)\\s*(?:\\)\\s*;?\\s*$|\\s*\\.where|\\s*\\.select|\\s*\\.insert|\\s*\\.update|\\s*\\.delete|\\s*\\|\\||\\s*res\\.(?:json|send))"
+    description: "Request data used directly without validation in query or response"
+    weight: 0.9
+    is_vulnerability: true
+  - pattern: "(?:parseInt|Number|parseFloat)\\s*\\(\\s*(?:req\\.(?:body|query|params)\\.\\w+)"
+    description: "Type coercion without validation"
+    weight: 0.85
+    is_vulnerability: true
+  - pattern: "(?:\\.where\\s*\\(\\s*{[^}]*\\b(?:userId|owner|createdBy)\\s*:\\s*(?:req\\.(?:user\\.)?id|currentUser))"
+    description: "User ID in query without validation"
+    weight: 0.7
+    is_vulnerability: false
+negative_suppressors:
+  - "z.object"
+  - "z.string"
+  - "z.number"
+  - "Joi.object"
+  - "yup.object"
+  - "validate"
+  - "sanitize"
+  - "validator."
+  - "express-validator"
+  - "class-validator"
+predicted_vulnerabilities:
+  - type: broken_access_control
+    probability: 0.9
+    owasp: A01_BROKEN_ACCESS_CONTROL
+    reason: "Trust in client-provided data without server validation"
+  - type: sqli
+    probability: 0.7
+    owasp: A03_INJECTION
+    reason: "Unvalidated input in queries"

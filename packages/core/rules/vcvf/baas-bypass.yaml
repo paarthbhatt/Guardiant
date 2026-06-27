@@ -1,0 +1,45 @@
+id: baas_bypass_architecture
+name: "BaaS Bypass Architecture"
+description: >
+  Backend-as-a-Service architectures often have client-side authentication
+  but lack proper database-level security (e.g., Supabase RLS disabled,
+  Firebase rules in test mode).
+enabled: true
+confidence: 0.95
+file_patterns:
+  - "**/*.{ts,tsx,js,jsx}"
+  - "**/supabase/**/*.sql"
+  - "**/firestore.rules"
+  - "**/database.rules.json"
+exclude_patterns:
+  - "**/*.test.*"
+  - "**/*.spec.*"
+  - "**/node_modules/**"
+  - "**/__tests__/**"
+  - "**/mock*"
+code_patterns:
+  - pattern: "(?:createClient|initializeApp)\\s*\\(\\s*{[\\s\\S]*?(?:anon[_-]?key|supabase[_-]?anon[_-]?key)"
+    description: "BaaS client initialization"
+    weight: 0.9
+    is_vulnerability: false
+  - pattern: "(?:SUPABASE_SERVICE_ROLE_KEY|SUPABASE_SERVICE_KEY|service_role)"
+    description: "Service role key exposure"
+    weight: 1.0
+    is_vulnerability: true
+  - pattern: "(?:allow\\s+read,\\s*write:\\s*if\\s+true|allow\\s+read,\\s*write:\\s*if\\s*request\\.auth\\s*!=\\s*null)"
+    description: "Firebase test mode rules"
+    weight: 1.0
+    is_vulnerability: true
+negative_suppressors:
+  - "SUPABASE_SERVICE_ROLE_KEY"  # Expected in server-side .env files
+  - "service_role"               # Expected in server-side code
+  - ".env"                       # Env files are not client-exposed
+predicted_vulnerabilities:
+  - type: broken_access_control
+    probability: 0.95
+    owasp: A01_BROKEN_ACCESS_CONTROL
+    reason: "Client-side auth without database-level authz"
+  - type: data_exposure
+    probability: 0.9
+    owasp: A01_BROKEN_ACCESS_CONTROL
+    reason: "No row-level security means all data exposed"

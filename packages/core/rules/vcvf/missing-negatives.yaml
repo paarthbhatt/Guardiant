@@ -1,0 +1,40 @@
+id: missing_negative_cases
+name: "Missing Negative Cases"
+description: >
+  AI-generated code often handles the "happy path" but misses error cases,
+  edge cases, and unauthorized scenarios.
+enabled: true
+confidence: 0.85
+file_patterns:
+  - "**/*.{ts,tsx,js,jsx}"
+exclude_patterns:
+  - "**/*.test.*"
+  - "**/*.spec.*"
+  - "**/node_modules/**"
+  - "**/__tests__/**"
+  - "**/mock*"
+code_patterns:
+  - pattern: "(?:try\\s*{[\\s\\S]*?}\\s*catch[^{]*{\\s*(?:console\\.(?:log|error|warn)|logger\\.(?:log|error|warn)))"
+    description: "Try-catch with only logging"
+    weight: 0.7
+    is_vulnerability: false
+  - pattern: "(?:\\.catch\\s*\\(\\s*\\(\\s*\\)\\s*=>\\s*{[\\s\\S]*?}\\s*\\))"
+    description: "Empty catch blocks"
+    weight: 0.9
+    is_vulnerability: true
+negative_suppressors:
+  - "throw"
+  - "rethrow"
+  - "next(error)"
+  - "HttpError"
+  - "AppError"
+  - "statusCode"
+predicted_vulnerabilities:
+  - type: insecure_design
+    probability: 0.7
+    owasp: A04_INSECURE_DESIGN
+    reason: "Missing error handling leads to unexpected behavior"
+  - type: information_disclosure
+    probability: 0.6
+    owasp: A05_SECURITY_MISCONFIGURATION
+    reason: "Unhandled errors may leak sensitive info"

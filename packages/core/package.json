@@ -76,6 +76,8 @@
     "@guardiant/database": "workspace:*",
     "@guardiant/queue": "workspace:*",
     "@guardiant/shared": "workspace:*",
+    "@types/js-yaml": "^4.0.9",
+    "js-yaml": "^5.2.0",
     "openai": "^4.77.0",
     "zod": "^3.24.1",
     "zod-to-json-schema": "^3.25.1"

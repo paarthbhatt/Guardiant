@@ -1,0 +1,29 @@
+id: copy_paste_insecurity
+name: "Copy-Paste Insecurity"
+description: >
+  AI models often copy code patterns from training data. Identical blocks
+  of code across files suggest copy-paste, and if one has a vulnerability,
+  all copies have it.
+enabled: true
+confidence: 0.75
+file_patterns:
+  - "**/*.{ts,tsx,js,jsx}"
+exclude_patterns:
+  - "**/*.test.*"
+  - "**/*.spec.*"
+  - "**/node_modules/**"
+code_patterns:
+  - pattern: "(?://\\s*TODO|//\\s*FIXME|//\\s*HACK)"
+    description: "TODO/FIXME comments indicating incomplete code"
+    weight: 0.3
+    is_vulnerability: false
+  - pattern: "(?:async\\s+\\w+\\s*\\([^)]*\\)\\s*(?::\\s*\\w+)?\\s*=>\\s*{[\\s\\S]{0,500}return[^;]*;[\\s\\S]{0,100}})"
+    description: "Similar function structures"
+    weight: 0.5
+    is_vulnerability: false
+min_patterns_required: 2
+predicted_vulnerabilities:
+  - type: injection
+    probability: 0.6
+    owasp: A03_INJECTION
+    reason: "Copied code may not have proper sanitization"
