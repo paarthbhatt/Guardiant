@@ -1,5 +1,7 @@
 import type { VCVFFingerprint, VCVFPatternType, Finding } from '@guardiant/shared';
 import { VCVF_PATTERNS, type VCVFPatternDefinition } from '@guardiant/shared';
+import { ASTParser } from './ast-parser.js';
+import { TaintTracker } from './taint-tracker.js';
 
 /**
  * VCVF (Vibe Code Vulnerability Fingerprint) Matcher
@@ -48,9 +50,12 @@ export class VCVFMatcher {
    */
   async analyze(code: string, filePath: string): Promise<VCVFFingerprint[]> {
     const fingerprints: VCVFFingerprint[] = [];
+    
+    // Instantiate ASTParser once per file
+    const astParser = new ASTParser(code);
 
     for (const pattern of this.patterns) {
-      const match = this.matchPattern(pattern, code, filePath);
+      const match = this.matchPattern(pattern, code, filePath, astParser);
       if (match) {
         fingerprints.push(match);
       }
@@ -65,8 +70,10 @@ export class VCVFMatcher {
   private matchPattern(
     pattern: VCVFPatternDefinition,
     code: string,
-    filePath: string
+    filePath: string,
+    astParser: ASTParser
   ): VCVFFingerprint | null {
+    const taintTracker = new TaintTracker(code);
     // Check exclude patterns — skip files matching any exclude glob
     const excludes = this.excludePatterns.get(pattern.type) ?? [];
     for (const excludeGlob of excludes) {
@@ -119,6 +126,58 @@ export class VCVFMatcher {
       }
     }
 
+    // Check AST patterns
+    if (pattern.astPatterns && pattern.astPatterns.length > 0 && astParser.isParsable()) {
+      for (const astPattern of pattern.astPatterns) {
+        let astMatches: any[] = [];
+        
+        if (astPattern.nodeType === 'MethodCall' && astPattern.methodNames) {
+          astMatches = astParser.findMethodCalls(astPattern.objectNames || [], astPattern.methodNames);
+        } else {
+          astMatches = astParser.findNodesByType(astPattern.nodeType);
+        }
+
+        if (astMatches.length > 0) {
+          matches.push(astPattern.description);
+          for (const match of astMatches) {
+            locations.push({
+              file: filePath,
+              line: match.loc?.start?.line || this.getLineNumber(code, match.start),
+              snippet: match.code.substring(0, 100),
+            });
+          }
+        }
+      }
+    }
+
+    // Check Taint patterns
+    if (pattern.taintPatterns && pattern.taintPatterns.length > 0) {
+      for (const taintPattern of pattern.taintPatterns) {
+        const flows = taintTracker.analyzeFlows(
+          taintPattern.sources,
+          taintPattern.sinks,
+          taintPattern.sanitizers || []
+        );
+
+        if (flows.length > 0) {
+          // If we find an unsanitized flow, it's a strong match
+          const hasVulnerability = flows.some(f => !f.isSanitized);
+          if (hasVulnerability) {
+            matches.push(taintPattern.description);
+            for (const flow of flows) {
+              if (!flow.isSanitized) {
+                locations.push({
+                  file: filePath,
+                  line: flow.sinkLoc?.start?.line || 0,
+                  snippet: `Flow from ${flow.sourceCode} to ${flow.sinkCode}`,
+                });
+              }
+            }
+          }
+        }
+      }
+    }
+
     if (matches.length === 0) {
       return null;
     }
@@ -130,7 +189,8 @@ export class VCVFMatcher {
     }
 
     // Calculate confidence
-    const confidence = pattern.confidence * (matches.length / pattern.codePatterns.length);
+    const totalPatterns = pattern.codePatterns.length + (pattern.astPatterns?.length || 0) + (pattern.taintPatterns?.length || 0);
+    const confidence = totalPatterns > 0 ? pattern.confidence * (matches.length / totalPatterns) : 0;
 
     // Generate predicted vulnerabilities
     const predictedVulnerabilities = pattern.predictedVulnerabilities.map(v => ({

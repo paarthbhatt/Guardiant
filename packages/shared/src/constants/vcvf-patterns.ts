@@ -27,6 +27,10 @@ export interface VCVFPatternDefinition {
   predictedVulnerabilities: VCVFPredictedVulnerability[];
   /** BaaS-specific indicators */
   baasIndicators?: BaaSIndicator[];
+  /** AST-based patterns */
+  astPatterns?: AstPattern[];
+  /** Taint-based patterns */
+  taintPatterns?: TaintPattern[];
 }
 
 export interface CodePattern {
@@ -38,6 +42,33 @@ export interface CodePattern {
   weight: number;
   /** True if pattern indicates presence of vulnerability */
   isVulnerability: boolean;
+}
+
+export interface AstPattern {
+  /** Node type to look for (e.g. CallExpression, MethodCall) */
+  nodeType: string;
+  /** Method names (if looking for method calls) */
+  methodNames?: string[];
+  /** Object names (if looking for method calls on specific objects) */
+  objectNames?: string[];
+  /** Description of what this matches */
+  description: string;
+  /** Weight for confidence calculation */
+  weight: number;
+  /** True if pattern indicates presence of vulnerability */
+  isVulnerability: boolean;
+}
+
+export interface TaintPattern {
+  /** Description of what this flow represents */
+  description: string;
+  /** True if pattern indicates presence of vulnerability */
+  isVulnerability: boolean;
+  /** Weight for confidence calculation */
+  weight: number;
+  sources: { name: string; property: string }[];
+  sinks: { object?: string; method: string }[];
+  sanitizers?: { name: string }[];
 }
 
 export interface VCVFPredictedVulnerability {
