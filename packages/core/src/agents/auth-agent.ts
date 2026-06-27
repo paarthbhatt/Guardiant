@@ -3,6 +3,8 @@ import { createFinding } from './types.js';
 import type { AgentContext, AgentResult, Finding, DiscoveredEndpoint } from '@guardiant/shared';
 import { OWASP_CATEGORIES } from '@guardiant/shared';
 import { createHttpClient } from '../http/index.js';
+import { readFileSync, existsSync, statSync, readdirSync } from 'fs';
+import { join, relative, extname } from 'path';
 
 /**
  * Authentication & Authorization Agent
@@ -14,6 +16,11 @@ import { createHttpClient } from '../http/index.js';
  * - OAuth flow security
  * - JWT manipulation
  * - Password reset flow security
+ *
+ * FINDINGS ARE ONLY EMITTED when concrete evidence exists:
+ *   - HTTP test confirms the vulnerability (200 + data without auth)
+ *   - Source code shows specific vulnerable pattern (file/line/snippet)
+ *   VCVF pattern presence alone is NOT sufficient.
  */
 export class AuthAgent extends AbstractAgent {
   readonly id = 'auth' as const;
@@ -36,18 +43,10 @@ export class AuthAgent extends AbstractAgent {
     const startTime = Date.now();
     const findings: Finding[] = [];
 
-    // HTTP-based auth testing requires a live target
-    if (context.target.type === 'directory') {
-      return this.createSuccessResult([], {
-        endpointsTested: 0,
-        custom: { reason: 'Auth testing requires a live HTTP target; VCVF patterns analyzed by recon agent' },
-      }, this.getDuration(startTime));
-    }
-
     try {
       await this.setup?.(context);
 
-      // Phase 1: Test IDOR on discovered endpoints
+      // Phase 1: Test IDOR on discovered endpoints (HTTP or directory)
       const idorFindings = await this.testIDOR(context);
       findings.push(...idorFindings);
 
@@ -133,72 +132,135 @@ Test for:
     return [];
   }
 
+  // ─── Code Evidence Search ──────────────────────────────────────────
+
   /**
-   * Test IDOR vulnerabilities
+   * Search source code for a specific vulnerability pattern.
+   * Returns file/line/snippet evidence if found, null otherwise.
    */
-  private async testIDOR(context: AgentContext): Promise<Finding[]> {
-    const findings: Finding[] = [];
-    const baseUrl = context.target.url;
+  private findCodeEvidence(
+    context: AgentContext,
+    pattern: RegExp
+  ): { file: string; line: number; snippet: string } | null {
+    if (context.target.type !== 'directory') return null;
+    const rootPath = context.target.url;
+    if (!existsSync(rootPath)) return null;
 
-    // IDOR test patterns (reserved for future active probing)
-    // const _idorPatterns = [ ... ]; // defined but intentionally deferred
+    const textExtensions = new Set([
+      '.ts', '.tsx', '.js', '.jsx', '.vue', '.svelte',
+    ]);
+    const excludeDirs = new Set([
+      'node_modules', '.git', '.next', 'dist', 'build',
+      '.cache', 'coverage', 'target',
+    ]);
 
-    // Test common IDOR vectors
-    const testIds = ['1', '2', '0', '999999', '../etc/passwd'];
-    const endpoints = context.reconData?.endpoints ?? [];
+    let result: { file: string; line: number; snippet: string } | null = null;
 
-    for (const endpoint of endpoints) {
-      // Check if endpoint has ID parameters
-      const hasIdParam = endpoint.parameters?.some(p =>
-        p.name.toLowerCase().includes('id') ||
-        p.name.toLowerCase().includes('user') ||
-        p.name.toLowerCase().includes('resource')
-      );
+    const walkDir = (dir: string): void => {
+      if (result) return;
+      let entries: string[];
+      try {
+        entries = readdirSync(dir);
+      } catch {
+        return;
+      }
 
-      if (hasIdParam || /\/:id|\/{id}|\/\d+/.test(endpoint.path)) {
-        // Try IDOR by manipulating IDs
-        for (const testId of testIds.slice(0, 3)) {
-          try {
-            const testUrl = this.buildIdorTestUrl(baseUrl, endpoint, testId);
-            const response = await this.httpClient.get(testUrl);
-
-            // Check if we get data without proper authorization
-            if (response.status === 200 && response.body) {
-              // Successful access could indicate IDOR
-              // Note: Without authentication context, we can only detect unauthenticated IDOR
-              if (endpoint.authentication && !response.body.includes('error') && !response.body.includes('unauthorized')) {
-                // This might be a false positive - needs manual verification
-              }
+      for (const entry of entries) {
+        if (result) return;
+        if (excludeDirs.has(entry)) continue;
+        const fullPath = join(dir, entry);
+        try {
+          const stats = statSync(fullPath);
+          if (stats.isDirectory()) {
+            walkDir(fullPath);
+          } else if (stats.isFile() && textExtensions.has(extname(fullPath).toLowerCase())) {
+            const content = readFileSync(fullPath, 'utf-8');
+            const match = pattern.exec(content);
+            if (match) {
+              const line = content.substring(0, match.index).split('\n').length;
+              result = {
+                file: relative(rootPath, fullPath),
+                line,
+                snippet: match[0].substring(0, 200),
+              };
             }
-          } catch {
-            // Continue on error
           }
+        } catch {
+          // skip
         }
       }
+    };
+
+    walkDir(rootPath);
+    return result;
+  }
+
+  /**
+   * Search for multiple patterns — returns evidence for the first match.
+   */
+  private findAnyCodeEvidence(
+    context: AgentContext,
+    patterns: Array<{ pattern: RegExp; description: string }>
+  ): { file: string; line: number; snippet: string; description: string } | null {
+    for (const { pattern, description } of patterns) {
+      const evidence = this.findCodeEvidence(context, pattern);
+      if (evidence) return { ...evidence, description };
+    }
+    return null;
+  }
+
+  // ─── IDOR Test ────────────────────────────────────────────────────
+
+  private async testIDOR(context: AgentContext): Promise<Finding[]> {
+    const findings: Finding[] = [];
+
+    // Guard: skip if app doesn't have auth
+    if (context.appContext && !context.appContext.hasAuth) return findings;
+
+    // Strategy 1: HTTP-based IDOR test (highest confidence)
+    if (context.target.type !== 'directory') {
+      const httpFindings = await this.testIDORViaHTTP(context);
+      findings.push(...httpFindings);
     }
 
-    // Check for VCVF pattern indicating IDOR likelihood
-    const hasIdorPattern = context.reconData?.vcvfPatterns.some(
-      p => p.type === 'auth_authz_conflation' || p.type === 'optimistic_trust_patterns'
-    );
+    // Strategy 2: Code-based IDOR detection (medium confidence)
+    // Look for routes with :id params that lack ownership checks
+    const idorCodeEvidence = this.findAnyCodeEvidence(context, [
+      {
+        // Route with ID param but no ownership check nearby
+        pattern: /(?:app|router)\.(get|put|delete|patch)\s*\(\s*['"`][^'"`]*:id[^'"`]*['"`]\s*,\s*(?!.*(?:owner|userId|req\.user\.id|auth\.uid))/gi,
+        description: 'Route with ID parameter missing ownership validation',
+      },
+      {
+        // Supabase query filtering by user-provided ID without auth check
+        pattern: /\.from\s*\([^)]+\)\s*\.select[^}]*\.eq\s*\(\s*['"`]id['"`]\s*,\s*req\.(?:params|body|query)\.id/gi,
+        description: 'Supabase query using client-provided ID without ownership check',
+      },
+      {
+        // Direct object reference without authorization
+        pattern: /(?:getUser|findById|findOne|get)\s*\(\s*req\.(?:params|body|query)\.(?:id|userId)\s*\)\s*(?!.*(?:req\.user|session|auth))/gi,
+        description: 'Direct object lookup by user-supplied ID without authorization',
+      },
+    ]);
 
-    if (hasIdorPattern) {
+    if (idorCodeEvidence) {
       findings.push(
         createFinding(this.id)
           .title('Potential IDOR Vulnerability')
           .description(
-            'The application shows patterns consistent with Insecure Direct Object References (IDOR). ' +
-            'Resources appear to be accessed by predictable IDs without proper authorization checks. ' +
-            'This allows attackers to access or modify other users\' data by manipulating identifiers in requests.'
+            `Found ${idorCodeEvidence.description} in ${idorCodeEvidence.file}:${idorCodeEvidence.line}. ` +
+            'Resources accessed by predictable IDs without proper authorization checks may allow ' +
+            'attackers to access or modify other users\' data by manipulating identifiers.'
           )
           .severity('high')
           .cvssScore(8.1)
           .category('A01_BROKEN_ACCESS_CONTROL')
-          .confidence(0.7)
+          .confidence(0.8)
           .vcvfPattern('auth_authz_conflation')
           .evidence({
-            endpoints: endpoints.filter(e => /\/:id|\/{id}/.test(e.path)).map(e => e.path),
-            context: { pattern: 'auth_authz_conflation' },
+            file: idorCodeEvidence.file,
+            line: idorCodeEvidence.line,
+            snippet: idorCodeEvidence.snippet,
           })
           .remediation({
             summary: 'Implement proper authorization checks for all resource access.',
@@ -234,8 +296,74 @@ app.get('/api/users/:id', auth, (req, res) => {
   }
 
   /**
-   * Build IDOR test URL
+   * HTTP-based IDOR testing on live endpoints.
+   * Only emits a finding if we get 200 + data without auth.
    */
+  private async testIDORViaHTTP(context: AgentContext): Promise<Finding[]> {
+    const findings: Finding[] = [];
+    const baseUrl = context.target.url;
+    const endpoints = context.reconData?.endpoints ?? [];
+    const testIds = ['1', '2', '0'];
+
+    for (const endpoint of endpoints) {
+      const hasIdParam = endpoint.parameters?.some(p =>
+        p.name.toLowerCase().includes('id') ||
+        p.name.toLowerCase().includes('user')
+      );
+
+      if (hasIdParam || /\/:id|\/{id}|\/\d+/.test(endpoint.path)) {
+        for (const testId of testIds.slice(0, 2)) {
+          try {
+            const testUrl = this.buildIdorTestUrl(baseUrl, endpoint, testId);
+            const response = await this.httpClient.get(testUrl);
+
+            // Only flag if we get actual data without auth
+            if (response.status === 200 && response.body &&
+                !response.body.includes('error') &&
+                !response.body.includes('unauthorized') &&
+                !response.body.includes('Unauthorized') &&
+                response.body.length > 10) {
+              findings.push(
+                createFinding(this.id)
+                  .title('Confirmed IDOR via HTTP Testing')
+                  .description(
+                    `Endpoint ${endpoint.method} ${endpoint.path} returned data when accessed with ID "${testId}" ` +
+                    'without authentication. This confirms an Insecure Direct Object Reference vulnerability.'
+                  )
+                  .severity('critical')
+                  .cvssScore(9.1)
+                  .category('A01_BROKEN_ACCESS_CONTROL')
+                  .confidence(0.95)
+                  .evidence({
+                    request: `${endpoint.method} ${testUrl}`,
+                    response: response.body.substring(0, 500),
+                    endpoints: [endpoint.path],
+                  })
+                  .remediation({
+                    summary: 'Implement ownership verification for all ID-based endpoints.',
+                    steps: [
+                      'Add authentication middleware to all resource endpoints',
+                      'Verify the requesting user owns the resource',
+                      'Return 404 (not 403) for non-owned resources to prevent enumeration',
+                    ],
+                    effort: 'medium',
+                    priority: 1,
+                  })
+                  .tags(['auth', 'idor', 'access-control', 'http-confirmed'])
+                  .build()
+              );
+              break; // One confirmed finding per endpoint is enough
+            }
+          } catch {
+            // Continue on error
+          }
+        }
+      }
+    }
+
+    return findings;
+  }
+
   private buildIdorTestUrl(baseUrl: string, endpoint: DiscoveredEndpoint, testId: string): string {
     const url = new URL(baseUrl);
     const path = endpoint.path.replace(/:id|{id}/g, testId);
@@ -243,29 +371,87 @@ app.get('/api/users/:id', auth, (req, res) => {
     return url.toString();
   }
 
-  /**
-   * Test privilege escalation
-   */
+  // ─── Privilege Escalation Test ─────────────────────────────────────
+
   private async testPrivilegeEscalation(context: AgentContext): Promise<Finding[]> {
     const findings: Finding[] = [];
 
-    // Horizontal escalation: User A can access User B's resources
-    // Vertical escalation: Regular user can access admin resources
+    // Guard: skip if app doesn't have user roles
+    if (context.appContext && !context.appContext.hasUserRoles) return findings;
 
-    // Check for client-side role checks
-    const hasClientSideAuth = context.reconData?.vcvfPatterns.some(
-      p => p.type === 'auth_authz_conflation'
-    );
+    // Strategy 1: HTTP-based privilege escalation test (highest confidence)
+    if (context.target.type !== 'directory') {
+      const adminPaths = ['/admin', '/api/admin', '/api/admin/users', '/api/users', '/dashboard/admin'];
+      const baseUrl = context.target.url;
 
-    if (hasClientSideAuth) {
+      for (const path of adminPaths.slice(0, 3)) {
+        try {
+          const url = new URL(path, baseUrl).toString();
+          const response = await this.httpClient.get(url);
+
+          // If we get 200 on an admin endpoint without auth, that's privilege escalation
+          if (response.status === 200 && response.body &&
+              response.body.length > 10 &&
+              !response.body.includes('login') &&
+              !response.body.includes('sign in') &&
+              !response.body.includes('unauthorized')) {
+            findings.push(
+              createFinding(this.id)
+                .title('Confirmed Privilege Escalation: Admin Endpoint Accessible')
+                .description(
+                  `Admin endpoint ${path} returned 200 OK without authentication. ` +
+                  'This confirms that admin-level resources are accessible to unauthenticated users.'
+                )
+                .severity('critical')
+                .cvssScore(9.1)
+                .category('A01_BROKEN_ACCESS_CONTROL')
+                .confidence(0.95)
+                .evidence({
+                  request: `GET ${url}`,
+                  response: response.body.substring(0, 500),
+                  endpoints: [path],
+                })
+                .remediation({
+                  summary: 'Add authentication and authorization middleware to admin endpoints.',
+                  steps: [
+                    'Add auth middleware that verifies JWT/session',
+                    'Add role check middleware that verifies admin role',
+                    'Return 401/403 for unauthorized requests',
+                  ],
+                  effort: 'low',
+                  priority: 1,
+                })
+                .tags(['auth', 'authorization', 'privilege-escalation', 'http-confirmed'])
+                .build()
+            );
+            break;
+          }
+        } catch {
+          // continue
+        }
+      }
+    }
+
+    // Strategy 2: Code-based detection (fallback)
+    const escalationEvidence = this.findAnyCodeEvidence(context, [
+      {
+        pattern: /(?:user\.role|isAdmin|hasRole)\s*===?\s*['"`]admin['"`]/i,
+        description: 'Client-side admin role check without server-side verification',
+      },
+      {
+        pattern: /(?:if\s*\(\s*(?:user\.role|isAdmin)\s*(?:===?\s*['"`]admin['"`])?\s*\)\s*{[^}]*(?:navigate|redirect|show))/i,
+        description: 'Admin UI gated by client-side role check only',
+      },
+    ]);
+
+    if (escalationEvidence) {
       findings.push(
         createFinding(this.id)
           .title('Client-Side Authorization Check')
           .description(
-            'Authorization checks appear to be implemented only on the client side. ' +
-            'This allows users to bypass role restrictions by modifying client-side code ' +
-            'or making direct API requests. Common in vibe-coded applications where ' +
-            'authentication is implemented but authorization is missing on the backend.'
+            `Found ${escalationEvidence.description} in ${escalationEvidence.file}:${escalationEvidence.line}. ` +
+            'Authorization checks on the client side can be bypassed by modifying client-side code ' +
+            'or making direct API requests.'
           )
           .severity('high')
           .cvssScore(8.1)
@@ -273,29 +459,17 @@ app.get('/api/users/:id', auth, (req, res) => {
           .confidence(0.85)
           .vcvfPattern('auth_authz_conflation')
           .evidence({
-            context: { pattern: 'auth_authz_conflation' },
+            file: escalationEvidence.file,
+            line: escalationEvidence.line,
+            snippet: escalationEvidence.snippet,
           })
           .remediation({
             summary: 'Implement server-side authorization checks for all protected resources.',
             steps: [
-              'Identify all endpoints that require specific roles/permissions',
               'Add role/permission checks on the server side for each endpoint',
               'Never trust client-side role information',
               'Use middleware or decorators for consistent authz enforcement',
-              'Log authorization failures for security monitoring',
             ],
-            codeExample: `// ❌ Client-side only check
-if (user.role === 'admin') {
-  // show admin panel
-}
-
-// ✅ Server-side check
-app.delete('/api/users/:id', async (req, res) => {
-  if (req.user.role !== 'admin') {
-    return res.status(403).json({ error: 'Forbidden' });
-  }
-  // proceed with deletion
-});`,
             effort: 'medium',
             priority: 2,
           })
@@ -307,47 +481,58 @@ app.delete('/api/users/:id', async (req, res) => {
     return findings;
   }
 
-  /**
-   * Test session management
-   */
+  // ─── Session Management Test ───────────────────────────────────────
+
   private async testSessionManagement(context: AgentContext): Promise<Finding[]> {
     const findings: Finding[] = [];
 
-    // Check for VCVF pattern: optimistic trust patterns
-    const hasOptimisticTrust = context.reconData?.vcvfPatterns.some(
-      p => p.type === 'optimistic_trust_patterns'
-    );
+    // Guard: skip if no auth
+    if (context.appContext && !context.appContext.hasAuth) return findings;
 
-    if (hasOptimisticTrust) {
+    // Only emit if we find concrete evidence: session tokens stored insecurely
+    const sessionEvidence = this.findAnyCodeEvidence(context, [
+      {
+        // Session token in localStorage (XSS-vulnerable)
+        pattern: /localStorage\.setItem\s*\(\s*['"`](?:token|session|auth|jwt|access_token)['"`]/i,
+        description: 'Session token stored in localStorage (accessible via XSS)',
+      },
+      {
+        // Cookie without security flags
+        pattern: /(?:document\.cookie|setCookie)\s*[=(].*(?:token|session|auth).*[^;]\s*$/im,
+        description: 'Session cookie set without security flags (HttpOnly, Secure, SameSite)',
+      },
+    ]);
+
+    if (sessionEvidence) {
       findings.push(
         createFinding(this.id)
-          .title('Potential Session Management Issues')
+          .title('Insecure Session Token Storage')
           .description(
-            'The application may have session management vulnerabilities. ' +
-            'Optimistic trust patterns suggest that session validation may be ' +
-            'handled client-side without proper server-side validation.'
+            `Found ${sessionEvidence.description} in ${sessionEvidence.file}:${sessionEvidence.line}. ` +
+            'Storing session tokens in localStorage makes them accessible to XSS attacks. ' +
+            'Cookies without security flags can be stolen or manipulated.'
           )
           .severity('high')
           .cvssScore(7.5)
           .category('A07_AUTH_FAILURES')
-          .confidence(0.7)
-          .vcvfPattern('optimistic_trust_patterns')
+          .confidence(0.85)
           .evidence({
-            context: { pattern: 'optimistic_trust_patterns' },
+            file: sessionEvidence.file,
+            line: sessionEvidence.line,
+            snippet: sessionEvidence.snippet,
           })
           .remediation({
-            summary: 'Implement server-side session validation for all protected endpoints.',
+            summary: 'Store session tokens securely using HttpOnly cookies.',
             steps: [
-              'Validate session tokens on the server for each request',
+              'Use HttpOnly, Secure, SameSite cookies for session tokens',
+              'Never store tokens in localStorage',
               'Implement session expiration and rotation',
-              'Use secure cookie flags (HttpOnly, Secure, SameSite)',
-              'Implement session invalidation on logout',
-              'Use a secure session store',
+              'Use a secure session store on the server',
             ],
             effort: 'medium',
             priority: 2,
           })
-          .tags(['auth', 'session', 'session-management'])
+          .tags(['auth', 'session', 'session-management', 'xss'])
           .build()
       );
     }
@@ -355,47 +540,60 @@ app.delete('/api/users/:id', async (req, res) => {
     return findings;
   }
 
-  /**
-   * Test OAuth flows
-   */
+  // ─── OAuth Flow Test ───────────────────────────────────────────────
+
   private async testOAuthFlows(context: AgentContext): Promise<Finding[]> {
     const findings: Finding[] = [];
 
-    // Check for VCVF pattern: optimistic trust patterns
-    const hasOptimisticTrust = context.reconData?.vcvfPatterns.some(
-      p => p.type === 'optimistic_trust_patterns'
-    );
+    // Guard: skip if no auth or no OAuth endpoints found
+    if (context.appContext && !context.appContext.hasAuth) return findings;
+    const hasOAuthEndpoints = context.reconData?.authMechanisms.some(a => a.type === 'oauth');
+    const hasOAuthCode = this.findCodeEvidence(context, /oauth|openid|passport.*oauth|nextauth.*provider/i);
+    if (!hasOAuthEndpoints && !hasOAuthCode) return findings;
 
-    if (hasOptimisticTrust) {
+    // Check for missing state parameter validation (CSRF in OAuth)
+    const oauthEvidence = this.findAnyCodeEvidence(context, [
+      {
+        // OAuth callback without state validation
+        pattern: /(?:callback|redirect).*oauth.*(?:req\.query\.code|req\.query\.state)(?!.*(?:verify|validate|check).*state)/i,
+        description: 'OAuth callback processing without state parameter validation',
+      },
+      {
+        // OAuth without PKCE
+        pattern: /(?:authorization_code|oauth).*(?!.*code_challenge|code_verifier)/i,
+        description: 'OAuth flow without PKCE protection',
+      },
+    ]);
+
+    if (oauthEvidence) {
       findings.push(
         createFinding(this.id)
-          .title('Potential OAuth Flow Vulnerability')
+          .title('OAuth Flow Vulnerability')
           .description(
-            'The application may be vulnerable to OAuth flow attacks. ' +
-            'Without proper server-side validation, OAuth callbacks may be ' +
-            'manipulated to link attacker-controlled accounts.'
+            `Found ${oauthEvidence.description} in ${oauthEvidence.file}:${oauthEvidence.line}. ` +
+            'OAuth callbacks without state parameter validation are vulnerable to CSRF attacks ' +
+            'where an attacker can link their account to a victim\'s session.'
           )
           .severity('high')
           .cvssScore(7.5)
           .category('A07_AUTH_FAILURES')
-          .confidence(0.65)
-          .vcvfPattern('optimistic_trust_patterns')
+          .confidence(0.8)
           .evidence({
-            context: { pattern: 'optimistic_trust_patterns' },
+            file: oauthEvidence.file,
+            line: oauthEvidence.line,
+            snippet: oauthEvidence.snippet,
           })
           .remediation({
-            summary: 'Implement proper OAuth state validation and link verification.',
+            summary: 'Validate OAuth state parameter and implement PKCE.',
             steps: [
               'Validate OAuth state parameter on callback',
-              'Verify the linking user matches the authenticated user',
-              'Store OAuth state in server-side session',
               'Implement PKCE for additional security',
               'Validate redirect URIs against a whitelist',
             ],
             effort: 'medium',
             priority: 2,
           })
-          .tags(['auth', 'oauth', 'flow'])
+          .tags(['auth', 'oauth', 'flow', 'csrf'])
           .build()
       );
     }
@@ -403,48 +601,139 @@ app.delete('/api/users/:id', async (req, res) => {
     return findings;
   }
 
-  /**
-   * Test JWT security
-   */
+  // ─── JWT Security Test ────────────────────────────────────────────
+
   private async testJWTSecurity(context: AgentContext): Promise<Finding[]> {
     const findings: Finding[] = [];
 
-    // Check for VCVF pattern: optimistic trust patterns
-    const hasOptimisticTrust = context.reconData?.vcvfPatterns.some(
-      p => p.type === 'optimistic_trust_patterns'
-    );
+    // Guard: skip if no auth
+    if (context.appContext && !context.appContext.hasAuth) return findings;
 
-    if (hasOptimisticTrust) {
+    // Strategy 1: HTTP-based JWT alg:none attack (highest confidence)
+    if (context.target.type !== 'directory') {
+      const authEndpoints = context.reconData?.endpoints.filter(e =>
+        /\/(?:api|auth|login|protected|me|profile|admin)/i.test(e.path)
+      ) ?? [];
+
+      for (const endpoint of authEndpoints.slice(0, 3)) {
+        try {
+          // First, try to get a response that reveals JWT structure
+          const url = `${context.target.url}${endpoint.path}`;
+          const response = await this.httpClient.get(url);
+
+          // Look for JWT in response headers or body
+          const authHeader = response.headers?.['authorization'] ?? response.headers?.['www-authenticate'] ?? '';
+          const jwtMatch = (response.body + authHeader).match(/eyJ[a-zA-Z0-9_-]*\.eyJ[a-zA-Z0-9_-]*\.[a-zA-Z0-9_-]*/);
+
+          if (jwtMatch) {
+            // Try alg:none attack: decode the JWT, change header to alg:none, strip signature
+            try {
+              const parts = jwtMatch[0].split('.');
+              const header = JSON.parse(Buffer.from(parts[0]!, 'base64url').toString());
+
+              if (header.alg && header.alg !== 'none') {
+                // Create alg:none variant
+                const noneHeader = Buffer.from(JSON.stringify({ ...header, alg: 'none' })).toString('base64url');
+                const noneToken = `${noneHeader}.${parts[1]}.`;
+
+                // Try to access a protected endpoint with the alg:none token
+                const testResponse = await this.httpClient.get(url, {
+                  'Authorization': `Bearer ${noneToken}`,
+                });
+
+                if (testResponse.status === 200 && testResponse.body &&
+                    !testResponse.body.includes('error') &&
+                    !testResponse.body.includes('unauthorized') &&
+                    !testResponse.body.includes('Invalid')) {
+                  findings.push(
+                    createFinding(this.id)
+                      .title('Confirmed JWT alg:none Bypass')
+                      .description(
+                        `JWT alg:none attack succeeded on ${endpoint.path}. ` +
+                        'The server accepted a JWT with algorithm set to "none" and no signature. ' +
+                        'Attackers can forge arbitrary JWTs and impersonate any user.'
+                      )
+                      .severity('critical')
+                      .cvssScore(9.8)
+                      .category('A07_AUTH_FAILURES')
+                      .confidence(0.98)
+                      .evidence({
+                        request: `GET ${url} with alg:none JWT`,
+                        response: testResponse.body.substring(0, 500),
+                        endpoints: [endpoint.path],
+                      })
+                      .remediation({
+                        summary: 'Explicitly reject JWTs with alg:none and validate algorithm server-side.',
+                        steps: [
+                          'Explicitly set allowed algorithms in jwt.verify: { algorithms: [\'RS256\'] }',
+                          'Never allow \'none\' algorithm',
+                          'Validate iss, aud, exp claims',
+                        ],
+                        effort: 'low',
+                        priority: 1,
+                      })
+                      .tags(['auth', 'jwt', 'alg-none', 'http-confirmed', 'critical'])
+                      .build()
+                  );
+                  break;
+                }
+              }
+            } catch {
+              // JWT decode failed, continue
+            }
+          }
+        } catch {
+          // continue
+        }
+      }
+    }
+
+    // Strategy 2: Code-based detection
+    const jwtEvidence = this.findAnyCodeEvidence(context, [
+      {
+        pattern: /(?:algorithms?\s*:\s*\[.*['"`]none['"`]|alg\s*===?\s*['"`]none['"`])/i,
+        description: 'JWT accepts "none" algorithm (signature bypass)',
+      },
+      {
+        pattern: /(?:jwt\.verify|jose\.jwtVerify|jsonwebtoken\.verify)(?!.*(?:exp|expiresIn|clockTimestamp|maxAge))/i,
+        description: 'JWT verified without checking expiration claim',
+      },
+      {
+        pattern: /(?:jwt[_-]?secret|JWT_SECRET)\s*[:=]\s*['"`][^'"`]{8,}['"`]/i,
+        description: 'JWT signing secret hardcoded in source code',
+      },
+    ]);
+
+    if (jwtEvidence) {
       findings.push(
         createFinding(this.id)
-          .title('Potential JWT Security Issues')
+          .title('JWT Security Weakness')
           .description(
-            'The application may have JWT security vulnerabilities. ' +
-            'Client-side JWT handling without server-side validation exposes ' +
-            'the application to token manipulation attacks.'
+            `Found ${jwtEvidence.description} in ${jwtEvidence.file}:${jwtEvidence.line}. ` +
+            'JWT implementation weaknesses can allow attackers to forge tokens, ' +
+            'bypass authentication, or escalate privileges.'
           )
-          .severity('high')
-          .cvssScore(7.5)
+          .severity('critical')
+          .cvssScore(9.1)
           .category('A07_AUTH_FAILURES')
-          .confidence(0.7)
-          .vcvfPattern('optimistic_trust_patterns')
+          .confidence(0.9)
           .evidence({
-            context: { pattern: 'optimistic_trust_patterns' },
+            file: jwtEvidence.file,
+            line: jwtEvidence.line,
+            snippet: jwtEvidence.snippet,
           })
           .remediation({
-            summary: 'Implement server-side JWT validation and verification.',
+            summary: 'Fix JWT implementation to use strong algorithms and validate all claims.',
             steps: [
-              'Verify JWT signature on the server',
-              'Validate JWT expiration (exp claim)',
-              'Validate JWT not-before (nbf claim)',
-              'Validate issuer (iss) and audience (aud)',
-              'Use strong signing algorithms (RS256, ES256)',
+              'Use RS256 or ES256 algorithm (never "none")',
+              'Always validate exp, iss, aud, and nbf claims',
+              'Store JWT secrets in environment variables, never in code',
               'Implement token refresh mechanism',
             ],
             effort: 'medium',
-            priority: 2,
+            priority: 1,
           })
-          .tags(['auth', 'jwt', 'token'])
+          .tags(['auth', 'jwt', 'token', 'crypto'])
           .build()
       );
     }
@@ -452,43 +741,66 @@ app.delete('/api/users/:id', async (req, res) => {
     return findings;
   }
 
-  /**
-   * Test password reset flow
-   */
+  // ─── Password Reset Test ──────────────────────────────────────────
+
   private async testPasswordReset(context: AgentContext): Promise<Finding[]> {
     const findings: Finding[] = [];
 
-    // Check for VCVF pattern: missing negative cases
-    const hasMissingNegatives = context.reconData?.vcvfPatterns.some(
-      p => p.type === 'missing_negative_cases'
-    );
+    // Guard: skip if no auth
+    if (context.appContext && !context.appContext.hasAuth) return findings;
 
-    if (hasMissingNegatives) {
+    // Only test if password reset endpoints are discovered
+    const hasResetEndpoint = context.reconData?.endpoints.some(e =>
+      /(?:reset|forgot|recover)/i.test(e.path)
+    );
+    const hasResetCode = this.findCodeEvidence(context, /(?:resetPassword|forgotPassword|sendResetEmail|reset.*token)/i);
+    if (!hasResetEndpoint && !hasResetCode) return findings;
+
+    // Check for specific password reset weaknesses
+    const resetEvidence = this.findAnyCodeEvidence(context, [
+      {
+        // Password reset without rate limiting
+        pattern: /(?:resetPassword|forgotPassword|sendResetEmail)\s*\([^)]*\)\s*{[^}]*(?!.*rateLimit|rate.?limit|throttle)/i,
+        description: 'Password reset endpoint without rate limiting',
+      },
+      {
+        // Reset token not invalidated after use
+        pattern: /(?:resetToken|reset_token).*(?:used|consumed|invalidated)(?!)/i,
+        description: 'Reset token may not be invalidated after use',
+      },
+      {
+        // User enumeration via reset response
+        pattern: /(?:resetPassword|forgotPassword).*res\.(?:json|send)\s*\(\s*{[^}]*(?:exists|found|not.?found|invalid.?email)/i,
+        description: 'Password reset reveals whether email exists (user enumeration)',
+      },
+    ]);
+
+    if (resetEvidence) {
       findings.push(
         createFinding(this.id)
-          .title('Potential Password Reset Vulnerability')
+          .title('Password Reset Vulnerability')
           .description(
-            'The password reset flow may be vulnerable to abuse. ' +
-            'Lack of proper validation and rate limiting can allow ' +
-            'attackers to enumerate users or reset passwords arbitrarily.'
+            `Found ${resetEvidence.description} in ${resetEvidence.file}:${resetEvidence.line}. ` +
+            'Weak password reset implementation can allow user enumeration, brute force, ' +
+            'or account takeover attacks.'
           )
           .severity('high')
           .cvssScore(8.1)
           .category('A07_AUTH_FAILURES')
-          .confidence(0.65)
-          .vcvfPattern('missing_negative_cases')
+          .confidence(0.8)
           .evidence({
-            context: { pattern: 'missing_negative_cases' },
+            file: resetEvidence.file,
+            line: resetEvidence.line,
+            snippet: resetEvidence.snippet,
           })
           .remediation({
-            summary: 'Implement secure password reset with rate limiting and validation.',
+            summary: 'Implement secure password reset with rate limiting and proper token handling.',
             steps: [
               'Rate limit password reset requests per IP and email',
               'Use time-limited, single-use reset tokens',
               'Generate cryptographically secure random tokens',
-              'Validate user identity before sending reset',
+              'Always return the same response regardless of email existence',
               'Invalidate old tokens when new ones are requested',
-              'Log all password reset attempts',
             ],
             effort: 'medium',
             priority: 1,

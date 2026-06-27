@@ -6,3 +6,6 @@ export * from './config/index.js';
 export * from './http/index.js';
 export * from './payloads/index.js';
 export * from './scanner/index.js';
+export * from './classifier/index.js';
+export * from './validators/index.js';
+export * from './rules/index.js';

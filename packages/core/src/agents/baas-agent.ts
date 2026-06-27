@@ -399,6 +399,9 @@ const supabase = createClient(
       return findings;
     }
 
+    // Extract the actual anon key from client-side code instead of using literal 'anon'
+    const anonKey = await this.extractAnonKey(context);
+
     // Common table names to test
     const commonTables = ['users', 'profiles', 'posts', 'comments', 'messages', 'orders', 'products', 'accounts'];
     const tablesWithoutRLS: string[] = [];
@@ -408,10 +411,15 @@ const supabase = createClient(
       try {
         // Try to access table without auth - if we get data, RLS might be missing
         const testUrl = `${supabaseUrl}/rest/v1/${table}?select=*&limit=1`;
-        const response = await this.httpClient.get(testUrl, {
-          'apikey': 'anon',  // Use anon key
-          'Authorization': 'Bearer anon',
-        });
+        const headers: Record<string, string> = {};
+        if (anonKey) {
+          headers['apikey'] = anonKey;
+          headers['Authorization'] = `Bearer ${anonKey}`;
+        } else {
+          // Without a real anon key we can't reliably test RLS — skip
+          continue;
+        }
+        const response = await this.httpClient.get(testUrl, headers);
 
         // If we get 200 with data, table is accessible without RLS
         if (response.status === 200 && response.body && !response.body.includes('error')) {
@@ -526,6 +534,74 @@ CREATE POLICY "Deny anon access" ON sensitive_table
     } catch {
       // Ignore
     }
+
+    return null;
+  }
+
+  /**
+   * Extract actual Supabase anon key from client-side code.
+   * Returns null if not found — caller should skip tests that require it.
+   */
+  private async extractAnonKey(context: AgentContext): Promise<string | null> {
+    const anonKeyPattern = /(?:anon[_-]?key|supabase[_-]?anon[_-]?key|NEXT_PUBLIC_SUPABASE_ANON_KEY)\s*[:=]\s*['"`](eyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+)['"`]/i;
+
+    // For directory scans, search source code directly
+    if (context.target.type === 'directory') {
+      const rootPath = context.target.url;
+      const textExtensions = new Set(['.ts', '.tsx', '.js', '.jsx', '.env', '.env.local']);
+      const excludeDirs = new Set(['node_modules', '.git', '.next', 'dist', 'build']);
+      let found: string | null = null;
+
+      const walkDir = (dir: string): void => {
+        if (found) return;
+        let entries: string[];
+        try { entries = readdirSync(dir); } catch { return; }
+        for (const entry of entries) {
+          if (found) return;
+          if (excludeDirs.has(entry)) continue;
+          const fullPath = join(dir, entry);
+          try {
+            const stats = statSync(fullPath);
+            if (stats.isDirectory()) {
+              walkDir(fullPath);
+            } else if (stats.isFile()) {
+              const ext = extname(fullPath).toLowerCase();
+              if (textExtensions.has(ext) || entry.startsWith('.env')) {
+                const content = readFileSync(fullPath, 'utf-8');
+                const match = anonKeyPattern.exec(content);
+                if (match?.[1]) {
+                  found = match[1];
+                }
+              }
+            }
+          } catch { /* skip */ }
+        }
+      };
+
+      walkDir(rootPath);
+      return found;
+    }
+
+    // For URL scans, check JS bundles
+    try {
+      const response = await this.httpClient.get(context.target.url);
+      const jsUrls = this.extractJavaScriptUrls(response.body, context.target.url);
+
+      // Check main HTML first
+      const htmlMatch = anonKeyPattern.exec(response.body);
+      if (htmlMatch?.[1]) return htmlMatch[1];
+
+      // Check JS bundles
+      for (const jsUrl of jsUrls.slice(0, 5)) {
+        try {
+          const jsResponse = await this.httpClient.get(jsUrl);
+          if (jsResponse.body) {
+            const match = anonKeyPattern.exec(jsResponse.body);
+            if (match?.[1]) return match[1];
+          }
+        } catch { /* continue */ }
+      }
+    } catch { /* continue */ }
 
     return null;
   }

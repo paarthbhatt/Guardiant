@@ -2,6 +2,8 @@ import { AbstractAgent } from './base.js';
 import { createFinding } from './types.js';
 import type { AgentContext, AgentResult, Finding } from '@guardiant/shared';
 import { OWASP_CATEGORIES } from '@guardiant/shared';
+import { readFileSync, existsSync, statSync, readdirSync } from 'fs';
+import { join, relative, extname } from 'path';
 
 /**
  * Business Logic Agent
@@ -13,6 +15,11 @@ import { OWASP_CATEGORIES } from '@guardiant/shared';
  * - Workflow step skipping
  * - Coupon/discount stacking
  * - Quantity manipulation
+ *
+ * FINDINGS ARE ONLY EMITTED when:
+ *   1. The app context confirms the feature exists (e.g., hasPayments)
+ *   2. Concrete code evidence shows the vulnerability
+ *   VCVF pattern presence alone is NOT sufficient.
  */
 export class BusinessLogicAgent extends AbstractAgent {
   readonly id = 'business_logic' as const;
@@ -27,33 +34,30 @@ export class BusinessLogicAgent extends AbstractAgent {
     const startTime = Date.now();
     const findings: Finding[] = [];
 
-    // Business logic testing relies on reconData VCVF patterns (no HTTP required)
-    // Works for both URL and directory modes via recon agent analysis
-
     try {
       await this.setup?.(context);
 
-      // Phase 1: Test payment/price manipulation
+      // Phase 1: Test payment/price manipulation (requires hasPayments)
       const paymentFindings = await this.testPaymentManipulation(context);
       findings.push(...paymentFindings);
 
-      // Phase 2: Test rate limiting
+      // Phase 2: Test rate limiting (requires auth endpoints)
       const rateLimitFindings = await this.testRateLimiting(context);
       findings.push(...rateLimitFindings);
 
-      // Phase 3: Test feature flags
+      // Phase 3: Test feature flags (requires feature-gated code)
       const featureFlagFindings = await this.testFeatureFlags(context);
       findings.push(...featureFlagFindings);
 
-      // Phase 4: Test workflow bypass
+      // Phase 4: Test workflow bypass (requires multi-step workflows)
       const workflowFindings = await this.testWorkflowBypass(context);
       findings.push(...workflowFindings);
 
-      // Phase 5: Test coupon/discount logic
+      // Phase 5: Test coupon/discount logic (requires payment flows)
       const couponFindings = await this.testCouponLogic(context);
       findings.push(...couponFindings);
 
-      // Phase 6: Test quantity manipulation
+      // Phase 6: Test quantity manipulation (requires cart/order flows)
       const quantityFindings = await this.testQuantityManipulation(context);
       findings.push(...quantityFindings);
 
@@ -115,37 +119,86 @@ Look for:
     return [];
   }
 
-  /**
-   * Test payment amount manipulation
-   */
+  // ─── Code Evidence Search ──────────────────────────────────────────
+
+  private findCodeEvidence(
+    context: AgentContext,
+    pattern: RegExp
+  ): { file: string; line: number; snippet: string } | null {
+    if (context.target.type !== 'directory') return null;
+    const rootPath = context.target.url;
+    if (!existsSync(rootPath)) return null;
+
+    const textExtensions = new Set(['.ts', '.tsx', '.js', '.jsx', '.vue', '.svelte']);
+    const excludeDirs = new Set(['node_modules', '.git', '.next', 'dist', 'build', '.cache', 'coverage']);
+
+    let result: { file: string; line: number; snippet: string } | null = null;
+
+    const walkDir = (dir: string): void => {
+      if (result) return;
+      let entries: string[];
+      try { entries = readdirSync(dir); } catch { return; }
+
+      for (const entry of entries) {
+        if (result) return;
+        if (excludeDirs.has(entry)) continue;
+        const fullPath = join(dir, entry);
+        try {
+          const stats = statSync(fullPath);
+          if (stats.isDirectory()) {
+            walkDir(fullPath);
+          } else if (stats.isFile() && textExtensions.has(extname(fullPath).toLowerCase())) {
+            const content = readFileSync(fullPath, 'utf-8');
+            const match = pattern.exec(content);
+            if (match) {
+              const line = content.substring(0, match.index).split('\n').length;
+              result = { file: relative(rootPath, fullPath), line, snippet: match[0].substring(0, 200) };
+            }
+          }
+        } catch { /* skip */ }
+      }
+    };
+
+    walkDir(rootPath);
+    return result;
+  }
+
+  private hasEndpointPattern(context: AgentContext, pattern: RegExp): boolean {
+    return context.reconData?.endpoints.some(e => pattern.test(e.path)) ?? false;
+  }
+
+  // ─── Payment Manipulation ─────────────────────────────────────────
+
   private async testPaymentManipulation(context: AgentContext): Promise<Finding[]> {
     const findings: Finding[] = [];
 
-    // Check for VCVF pattern: optimistic trust
-    const hasOptimisticTrust = context.reconData?.vcvfPatterns.some(
-      p => p.type === 'optimistic_trust_patterns'
+    // GUARD: Only run if app has payment flows
+    if (context.appContext && !context.appContext.hasPayments) return findings;
+
+    // Need concrete evidence: code shows client-sent price used directly
+    const evidence = this.findCodeEvidence(
+      context,
+      /(?:req\.body\.(?:price|amount|total|cost|subtotal)|req\.body\[.*(?:price|amount|total).*\])(?!.*\.(?:getPrice|calculate|fetch|lookup))/i
     );
 
-    if (hasOptimisticTrust) {
-      // Higher likelihood of payment manipulation
+    if (evidence) {
       findings.push(
         createFinding(this.id)
-          .title('Potential Payment Amount Manipulation')
+          .title('Payment Amount Manipulation')
           .description(
-            'The application appears to trust client-side price/amount data. ' +
-            'This is a common vulnerability in vibe-coded applications where ' +
-            'developers trust the frontend to send correct prices instead of ' +
-            'fetching prices from the server. Attackers can modify payment ' +
-            'amounts in transit, potentially purchasing items for free or ' +
-            'at heavily discounted prices.'
+            `Found client-supplied price/amount data used directly in ${evidence.file}:${evidence.line}. ` +
+            'The server trusts the client to send correct prices instead of fetching them from the database. ' +
+            'Attackers can modify payment amounts in transit to purchase items for free or at discounted prices.'
           )
-          .severity('high')
-          .cvssScore(8.1)
+          .severity('critical')
+          .cvssScore(9.1)
           .category('A04_INSECURE_DESIGN')
-          .confidence(0.75)
+          .confidence(0.9)
           .vcvfPattern('optimistic_trust_patterns')
           .evidence({
-            context: { pattern: 'optimistic_trust_patterns' },
+            file: evidence.file,
+            line: evidence.line,
+            snippet: evidence.snippet,
           })
           .remediation({
             summary: 'Always validate prices and amounts on the server side.',
@@ -154,7 +207,6 @@ Look for:
               'Fetch prices from database on the server',
               'Verify amounts before processing payment',
               'Use server-side order validation',
-              'Log all price modifications for audit',
             ],
             codeExample: `// ❌ Trusting client-side price
 app.post('/api/checkout', async (req, res) => {
@@ -170,7 +222,7 @@ app.post('/api/checkout', async (req, res) => {
   await processPayment(total);
 });`,
             effort: 'medium',
-            priority: 3,
+            priority: 1,
           })
           .tags(['business-logic', 'payment', 'price-manipulation'])
           .build()
@@ -180,109 +232,101 @@ app.post('/api/checkout', async (req, res) => {
     return findings;
   }
 
-  /**
-   * Test rate limiting
-   */
+  // ─── Rate Limiting ────────────────────────────────────────────────
+
   private async testRateLimiting(context: AgentContext): Promise<Finding[]> {
     const findings: Finding[] = [];
 
-    // Check for VCVF pattern: missing negative cases / over-permissive defaults
-    const hasMissingRateLimit = context.reconData?.vcvfPatterns.some(
-      p => p.type === 'missing_negative_cases' || p.type === 'over_permissive_defaults'
+    // GUARD: Need auth endpoints to check for rate limiting
+    const hasAuthEndpoints = this.hasEndpointPattern(context, /\/(?:auth|login|register|signup|signin)/i);
+    if (!hasAuthEndpoints && context.appContext && !context.appContext.hasAuth) return findings;
+
+    // Check for absence of rate limiting middleware in code
+    const hasRateLimiter = this.findCodeEvidence(
+      context,
+      /(?:rateLimit|rate.?limit|express.?rate.?limit|throttle|limiter|slowDown|expressSlowDown)/i
     );
 
-    if (hasMissingRateLimit) {
-      findings.push(
-        createFinding(this.id)
-          .title('Missing or Ineffective Rate Limiting')
-          .description(
-            'Rate limiting appears to be missing or easily bypassable. ' +
-            'This allows attackers to perform brute force attacks, ' +
-            'credential stuffing, or automated scraping without restriction.'
-          )
-          .severity('medium')
-          .cvssScore(6.5)
-          .category('A04_INSECURE_DESIGN')
-          .confidence(0.7)
-          .vcvfPattern('missing_negative_cases')
-          .evidence({
-            context: { pattern: 'missing_negative_cases' },
-          })
-          .remediation({
-            summary: 'Implement server-side rate limiting for all sensitive endpoints.',
-            steps: [
-              'Implement rate limiting at the API gateway or middleware level',
-              'Use rate limiting based on IP, user ID, and API key',
-              'Apply stricter limits on authentication endpoints',
-              'Return 429 status code when limits exceeded',
-              'Consider using token bucket or sliding window algorithms',
-            ],
-            codeExample: `// Express rate limiting middleware
-import rateLimit from 'express-rate-limit';
-
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // limit each IP to 100 requests per windowMs
-  message: { error: 'Too many requests' }
-});
-
-// Stricter limits for auth endpoints
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 5, // 5 attempts per 15 minutes
-});
-
-app.use('/api/', limiter);
-app.use('/api/auth/', authLimiter);`,
-            effort: 'low',
-            priority: 5,
-          })
-          .tags(['business-logic', 'rate-limiting', 'brute-force'])
-          .build()
+    // Only flag if auth endpoints exist AND no rate limiter found
+    if (!hasRateLimiter) {
+      const hasAuthCode = this.findCodeEvidence(
+        context,
+        /(?:login|signin|signup|register|authenticate)\s*\(/
       );
+
+      if (hasAuthCode || hasAuthEndpoints) {
+        findings.push(
+          createFinding(this.id)
+            .title('Missing Rate Limiting on Authentication')
+            .description(
+              'Authentication endpoints found without rate limiting middleware. ' +
+              'This allows brute force attacks, credential stuffing, or automated account enumeration.'
+            )
+            .severity('medium')
+            .cvssScore(6.5)
+            .category('A04_INSECURE_DESIGN')
+            .confidence(0.75)
+            .evidence({
+              context: { pattern: 'missing_rate_limit', hasAuthEndpoints },
+            })
+            .remediation({
+              summary: 'Implement server-side rate limiting for authentication endpoints.',
+              steps: [
+                'Add rate limiting middleware (e.g., express-rate-limit)',
+                'Use stricter limits on login/register endpoints (5-10 per 15 min)',
+                'Return 429 status code when limits exceeded',
+                'Consider adding CAPTCHA after repeated failures',
+              ],
+              effort: 'low',
+              priority: 3,
+            })
+            .tags(['business-logic', 'rate-limiting', 'brute-force'])
+            .build()
+        );
+      }
     }
 
     return findings;
   }
 
-  /**
-   * Test feature flags
-   */
+  // ─── Feature Flags ────────────────────────────────────────────────
+
   private async testFeatureFlags(context: AgentContext): Promise<Finding[]> {
     const findings: Finding[] = [];
 
-    // Check for VCVF pattern: optimistic trust patterns
-    const hasOptimisticTrust = context.reconData?.vcvfPatterns.some(
-      p => p.type === 'optimistic_trust_patterns'
+    // Check for feature flags stored client-side or in accessible endpoints
+    const evidence = this.findCodeEvidence(
+      context,
+      /(?:featureFlags?|FEATURE_FLAGS?|features?)\s*[:=]\s*(?:req\.body|localStorage|sessionStorage|window\.|process\.env\.NEXT_PUBLIC)/i
     );
 
-    if (hasOptimisticTrust) {
+    if (evidence) {
       findings.push(
         createFinding(this.id)
-          .title('Potential Feature Flag Bypass')
+          .title('Client-Side Feature Flag Configuration')
           .description(
-            'The application uses optimistic trust patterns for feature flags. ' +
-            'This may allow users to bypass feature restrictions by modifying ' +
-            'client-side configuration or accessing hidden endpoints.'
+            `Found feature flags controlled client-side in ${evidence.file}:${evidence.line}. ` +
+            'Feature flags stored in localStorage, env vars, or client-side state can be ' +
+            'modified by users to access premium or hidden features.'
           )
           .severity('medium')
           .cvssScore(6.5)
           .category('A04_INSECURE_DESIGN')
-          .confidence(0.7)
-          .vcvfPattern('optimistic_trust_patterns')
+          .confidence(0.8)
           .evidence({
-            context: { pattern: 'optimistic_trust_patterns' },
+            file: evidence.file,
+            line: evidence.line,
+            snippet: evidence.snippet,
           })
           .remediation({
-            summary: 'Implement server-side feature flag evaluation.',
+            summary: 'Evaluate feature flags server-side and gate features at the API level.',
             steps: [
-              'Move all feature flag logic to the server side',
-              'Validate feature access before returning feature-dependent data',
-              'Use a dedicated feature flag service with server SDKs',
-              'Audit all client-side feature checks',
+              'Move feature flag evaluation to the server',
+              'Gate feature-dependent API endpoints server-side',
+              'Use a feature flag service with server SDKs',
             ],
             effort: 'medium',
-            priority: 5,
+            priority: 4,
           })
           .tags(['business-logic', 'feature-flags', 'bypass'])
           .build()
@@ -292,143 +336,152 @@ app.use('/api/auth/', authLimiter);`,
     return findings;
   }
 
-  /**
-   * Test workflow bypass
-   */
+  // ─── Workflow Bypass ──────────────────────────────────────────────
+
   private async testWorkflowBypass(context: AgentContext): Promise<Finding[]> {
     const findings: Finding[] = [];
 
-    // Check for VCVF pattern: optimistic trust patterns
-    const hasOptimisticTrust = context.reconData?.vcvfPatterns.some(
-      p => p.type === 'optimistic_trust_patterns'
+    // Look for multi-step workflow patterns where steps can be skipped
+    const evidence = this.findCodeEvidence(
+      context,
+      /(?:step|stage|wizard|onboarding|checkout.*step)\s*(?:===?|>=?|<=?)\s*(?:\d|req\.body\.step|req\.query\.step)/i
     );
 
-    if (hasOptimisticTrust) {
-      findings.push(
-        createFinding(this.id)
-          .title('Potential Workflow Step Bypass')
-          .description(
-            'The application may allow users to skip workflow steps. ' +
-            'This is a common vulnerability in vibe-coded applications where ' +
-            'client-side routing controls workflow progression without ' +
-            'server-side validation of step completion.'
-          )
-          .severity('medium')
-          .cvssScore(5.3)
-          .category('A04_INSECURE_DESIGN')
-          .confidence(0.65)
-          .vcvfPattern('optimistic_trust_patterns')
-          .evidence({
-            context: { pattern: 'optimistic_trust_patterns' },
-          })
-          .remediation({
-            summary: 'Implement server-side workflow state validation.',
-            steps: [
-              'Track workflow state on the server',
-              'Validate each step before allowing progression',
-              'Prevent skipping steps via direct API calls',
-              'Use workflow engines for complex multi-step processes',
-            ],
-            effort: 'medium',
-            priority: 4,
-          })
-          .tags(['business-logic', 'workflow', 'bypass'])
-          .build()
+    if (evidence) {
+      // Verify there's no server-side step validation
+      const hasStepValidation = this.findCodeEvidence(
+        context,
+        /(?:validateStep|checkStep|currentStep|completedSteps|stepHistory)/i
       );
+
+      if (!hasStepValidation) {
+        findings.push(
+          createFinding(this.id)
+            .title('Potential Workflow Step Bypass')
+            .description(
+              `Found workflow step control via client-provided step number in ${evidence.file}:${evidence.line} ` +
+              'without server-side validation of step completion. Users may skip steps by manipulating the step parameter.'
+            )
+            .severity('medium')
+            .cvssScore(5.3)
+            .category('A04_INSECURE_DESIGN')
+            .confidence(0.7)
+            .evidence({
+              file: evidence.file,
+              line: evidence.line,
+              snippet: evidence.snippet,
+            })
+            .remediation({
+              summary: 'Validate workflow step completion on the server.',
+              steps: [
+                'Track workflow state on the server',
+                'Validate each step before allowing progression',
+                'Prevent skipping steps via direct API calls',
+              ],
+              effort: 'medium',
+              priority: 4,
+            })
+            .tags(['business-logic', 'workflow', 'bypass'])
+            .build()
+        );
+      }
     }
 
     return findings;
   }
 
-  /**
-   * Test coupon/discount logic
-   */
+  // ─── Coupon Logic ─────────────────────────────────────────────────
+
   private async testCouponLogic(context: AgentContext): Promise<Finding[]> {
     const findings: Finding[] = [];
 
-    // Check for VCVF pattern: missing negative cases
-    const hasMissingNegatives = context.reconData?.vcvfPatterns.some(
-      p => p.type === 'missing_negative_cases'
+    // GUARD: Only run if app has payment flows
+    if (context.appContext && !context.appContext.hasPayments) return findings;
+
+    // Check for coupon application without usage tracking
+    const evidence = this.findCodeEvidence(
+      context,
+      /(?:applyCoupon|redeemCoupon|useDiscount|applyDiscount)\s*\([^)]*\)\s*{(?![^}]*(?:usedCount|usageCount|redeemed|maxUses|limit))/i
     );
 
-    if (hasMissingNegatives) {
+    if (evidence) {
       findings.push(
         createFinding(this.id)
           .title('Potential Coupon/Discount Abuse')
-          .description(
-            'The application may be vulnerable to coupon or discount abuse. ' +
-            'Lack of proper negative case handling in business logic allows ' +
-            'users to stack coupons, apply expired discounts, or manipulate ' +
-            'pricing calculations.'
-          )
-          .severity('medium')
-          .cvssScore(5.3)
-          .category('A04_INSECURE_DESIGN')
-          .confidence(0.6)
-          .vcvfPattern('missing_negative_cases')
-          .evidence({
-            context: { pattern: 'missing_negative_cases' },
-          })
-          .remediation({
-            summary: 'Implement strict coupon validation and business rules.',
-            steps: [
-              'Validate coupon expiration dates server-side',
-              'Prevent coupon stacking without explicit rules',
-              'Check minimum purchase requirements',
-              'Limit coupon usage per user',
-              'Log all coupon redemptions for audit',
-            ],
-            effort: 'low',
-            priority: 5,
-          })
-          .tags(['business-logic', 'coupon', 'pricing'])
-          .build()
+        .description(
+          `Found coupon/discount application without usage tracking in ${evidence.file}:${evidence.line}. ` +
+          'Without tracking redemption counts and enforcing limits, coupons can be reused indefinitely ' +
+          'or stacked to reduce prices to zero.'
+        )
+        .severity('medium')
+        .cvssScore(5.3)
+        .category('A04_INSECURE_DESIGN')
+        .confidence(0.75)
+        .evidence({
+          file: evidence.file,
+          line: evidence.line,
+          snippet: evidence.snippet,
+        })
+        .remediation({
+          summary: 'Implement strict coupon validation with usage limits.',
+          steps: [
+            'Track coupon usage per user in the database',
+            'Enforce single-use or limited-use constraints',
+            'Validate coupon expiration server-side',
+            'Prevent stacking unless explicitly allowed',
+          ],
+          effort: 'low',
+          priority: 4,
+        })
+        .tags(['business-logic', 'coupon', 'pricing'])
+        .build()
       );
     }
 
     return findings;
   }
 
-  /**
-   * Test quantity manipulation
-   */
+  // ─── Quantity Manipulation ────────────────────────────────────────
+
   private async testQuantityManipulation(context: AgentContext): Promise<Finding[]> {
     const findings: Finding[] = [];
 
-    // Check for VCVF pattern: optimistic trust patterns
-    const hasOptimisticTrust = context.reconData?.vcvfPatterns.some(
-      p => p.type === 'optimistic_trust_patterns'
+    // GUARD: Only run if app has payment flows (cart/order)
+    if (context.appContext && !context.appContext.hasPayments) return findings;
+
+    // Check for quantity used without validation
+    const evidence = this.findCodeEvidence(
+      context,
+      /(?:req\.body\.quantity|req\.body\.qty|quantity.*req\.body)(?![^;]*(?:Math\.|parseInt|Number\(|> ?0|< ?0|isPositive|validate))/i
     );
 
-    if (hasOptimisticTrust) {
+    if (evidence) {
       findings.push(
         createFinding(this.id)
           .title('Potential Quantity Manipulation')
           .description(
-            'The application may allow quantity manipulation attacks. ' +
-            'Without server-side quantity validation, users can enter ' +
-            'negative quantities, decimal quantities for integer items, ' +
-            'or extremely large quantities to cause overflow issues.'
+            `Found quantity from request body used without validation in ${evidence.file}:${evidence.line}. ` +
+            'Without server-side validation, users can submit negative, zero, or decimal quantities ' +
+            'to manipulate order totals or exploit business logic.'
           )
           .severity('medium')
           .cvssScore(5.3)
           .category('A04_INSECURE_DESIGN')
-          .confidence(0.65)
-          .vcvfPattern('optimistic_trust_patterns')
+          .confidence(0.8)
           .evidence({
-            context: { pattern: 'optimistic_trust_patterns' },
+            file: evidence.file,
+            line: evidence.line,
+            snippet: evidence.snippet,
           })
           .remediation({
-            summary: 'Implement strict quantity validation on the server.',
+            summary: 'Validate quantity server-side as a positive integer within bounds.',
             steps: [
               'Validate quantity is a positive integer',
               'Check against available inventory',
-              'Prevent negative or zero quantities',
               'Cap maximum quantity per order',
-              'Log quantity modifications for audit',
             ],
             effort: 'low',
-            priority: 4,
+            priority: 3,
           })
           .tags(['business-logic', 'quantity', 'manipulation'])
           .build()

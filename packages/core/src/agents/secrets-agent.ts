@@ -44,11 +44,11 @@ export class SecretsAgent extends AbstractAgent {
     { pattern: /ghp_[a-zA-Z0-9]{36}/g, name: 'GitHub PAT', severity: 'critical' as const },
     { pattern: /github_pat_[a-zA-Z0-9_]{22,}/g, name: 'GitHub Fine-grained PAT', severity: 'critical' as const },
     { pattern: /xox[baprs]-[a-zA-Z0-9-]{10,}/g, name: 'Slack Token', severity: 'high' as const },
-    { pattern: /eyJ[a-zA-Z0-9_-]*\.eyJ[a-zA-Z0-9_-]*\.[a-zA-Z0-9_-]*/g, name: 'JWT Token', severity: 'high' as const },
+    { pattern: /eyJ[a-zA-Z0-9_-]*\.eyJ[a-zA-Z0-9_-]*\.[a-zA-Z0-9_-]*/g, name: 'JWT Token', severity: 'medium' as const, checkPlaceholder: true },
 
-    // Generic secrets
-    { pattern: /(?:password|passwd|pwd)\s*[=:]\s*['"`]([^'"`]{8,})['"`]/gi, name: 'Hardcoded Password', severity: 'critical' as const },
-    { pattern: /(?:secret|api[_-]?key|token)\s*[=:]\s*['"`]([^'"`]{16,})['"`]/gi, name: 'Hardcoded Secret', severity: 'critical' as const },
+    // Generic secrets — checkPlaceholder prevents false positives on test values
+    { pattern: /(?:password|passwd|pwd)\s*[=:]\s*['"`]([^'"`]{8,})['"`]/gi, name: 'Hardcoded Password', severity: 'critical' as const, checkPlaceholder: true },
+    { pattern: /(?:secret|api[_-]?key|token)\s*[=:]\s*['"`]([^'"`]{16,})['"`]/gi, name: 'Hardcoded Secret', severity: 'critical' as const, checkPlaceholder: true },
     { pattern: /(?:private[_-]?key|secret[_-]?key)\s*[=:]\s*['"`]([^'"`]+)['"`]/gi, name: 'Private Key', severity: 'critical' as const },
 
     // Database URLs
@@ -62,8 +62,8 @@ export class SecretsAgent extends AbstractAgent {
     { pattern: /firebase_admin_key/gi, name: 'Firebase Admin Key Reference', severity: 'high' as const },
     { pattern: /private_key\s*=\s*['"`]-----BEGIN PRIVATE KEY-----/gi, name: 'Firebase Private Key', severity: 'critical' as const },
 
-    // Environment variables in client code
-    { pattern: /process\.env\.(?:NEXT_PUBLIC_|REACT_APP_|VITE_)?(?:API_KEY|SECRET|PASSWORD|TOKEN)/gi, name: 'Env Variable Reference', severity: 'medium' as const },
+    // Environment variable references — NOT secrets themselves, just references to env vars
+    { pattern: /process\.env\.(?!NEXT_PUBLIC_|REACT_APP_|VITE_|EXPO_PUBLIC_)(?:API_KEY|SECRET|PASSWORD|TOKEN|PRIVATE)/gi, name: 'Environment Variable Reference (Not a Secret)', severity: 'info' as const },
 
     // OAuth secrets
     { pattern: /(?:client[_-]?secret|oauth[_-]?secret)\s*[=:]\s*['"`]([^'"`]+)['"`]/gi, name: 'OAuth Client Secret', severity: 'critical' as const },
@@ -179,7 +179,8 @@ export class SecretsAgent extends AbstractAgent {
                     const secretKey = `${name}:${match[0].substring(0, 20)}`;
                     if (!foundSecrets.has(secretKey)) {
                       foundSecrets.add(secretKey);
-                      findings.push(this.createSecretFinding(name, match[0], severity, relPath));
+                      const finding = this.createSecretFinding(name, match[0], severity, relPath);
+                      if (finding) findings.push(finding);
                     }
                   }
                 }
@@ -260,7 +261,8 @@ Check for:
           const secretKey = `${name}:${match[0].substring(0, 20)}`;
           if (!foundSecrets.has(secretKey)) {
             foundSecrets.add(secretKey);
-            findings.push(this.createSecretFinding(name, match[0], severity, 'HTML page'));
+            const finding = this.createSecretFinding(name, match[0], severity, 'HTML page');
+            if (finding) findings.push(finding);
           }
         }
       }
@@ -279,7 +281,8 @@ Check for:
               const secretKey = `${name}:${match[0].substring(0, 20)}`;
               if (!foundSecrets.has(secretKey)) {
                 foundSecrets.add(secretKey);
-                findings.push(this.createSecretFinding(name, match[0], severity, jsUrl));
+                const finding = this.createSecretFinding(name, match[0], severity, jsUrl);
+                if (finding) findings.push(finding);
               }
             }
           }
@@ -297,7 +300,31 @@ Check for:
   /**
    * Create a secret finding
    */
-  private createSecretFinding(name: string, match: string, severity: 'critical' | 'high' | 'medium', location: string): Finding {
+  /**
+   * Check if a matched value is a known placeholder/test value.
+   * Returns true if the value should be suppressed.
+   */
+  private isPlaceholderValue(match: string): boolean {
+    const lower = match.toLowerCase();
+    const placeholders = [
+      'example', 'placeholder', 'your-', 'xxx', 'test', 'dummy',
+      'fake', 'sample', 'replace_me', 'changeme', 'insert_',
+      '<your', 'todo', 'fixme', 'abc123', 'password123',
+      'secret123', 'my-secret', 'my-password', 'my-api-key',
+      'supersecret', '12345678', 'abcdefgh',
+    ];
+    return placeholders.some(p => lower.includes(p));
+  }
+
+  /**
+   * Create a secret finding, or null if the match is a placeholder/test value.
+   */
+  private createSecretFinding(name: string, match: string, severity: 'critical' | 'high' | 'medium' | 'info', location: string): Finding | null {
+    // Suppress placeholder/test values
+    if (this.isPlaceholderValue(match)) {
+      return null;
+    }
+
     const redactedSecret = match.length > 30 ? match.substring(0, 15) + '...' + match.substring(match.length - 5) : match.substring(0, Math.floor(match.length / 2)) + '...';
 
     return createFinding(this.id)
@@ -309,7 +336,7 @@ Check for:
         `that can lead to data breaches, financial loss, and service abuse.`
       )
       .severity(severity)
-      .cvssScore(severity === 'critical' ? 9.1 : severity === 'high' ? 7.5 : 5.3)
+      .cvssScore(severity === 'critical' ? 9.1 : severity === 'high' ? 7.5 : severity === 'medium' ? 5.3 : 0)
       .category('A05_SECURITY_MISCONFIGURATION')
       .confidence(0.85)
       .evidence({
@@ -659,7 +686,8 @@ location ~ /\\.env {
             const secretKey = `${name}:${secretMatch[0].substring(0, 20)}`;
             if (!foundSecrets.has(secretKey)) {
               foundSecrets.add(secretKey);
-              findings.push(this.createSecretFinding(name, secretMatch[0], severity, 'inline script'));
+              const finding = this.createSecretFinding(name, secretMatch[0], severity, 'inline script');
+              if (finding) findings.push(finding);
             }
           }
         }
@@ -676,7 +704,8 @@ location ~ /\\.env {
             const secretKey = `${name}:${value.substring(0, 20)}`;
             if (!foundSecrets.has(secretKey)) {
               foundSecrets.add(secretKey);
-              findings.push(this.createSecretFinding(name, value, severity, 'data attribute'));
+              const finding = this.createSecretFinding(name, value, severity, 'data attribute');
+              if (finding) findings.push(finding);
             }
           }
         }
@@ -693,7 +722,8 @@ location ~ /\\.env {
             const secretKey = `${name}:${value.substring(0, 20)}`;
             if (!foundSecrets.has(secretKey)) {
               foundSecrets.add(secretKey);
-              findings.push(this.createSecretFinding(name, value, severity, 'hidden input'));
+              const finding = this.createSecretFinding(name, value, severity, 'hidden input');
+              if (finding) findings.push(finding);
             }
           }
         }
