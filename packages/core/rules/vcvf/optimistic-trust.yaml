@@ -18,7 +18,7 @@ exclude_patterns:
   - "**/__tests__/**"
   - "**/mock*"
 code_patterns:
-  - pattern: "(?:req\\.(?:body|query|params)\\.\\w+)\\s*(?:\\)\\s*;?\\s*$|\\s*\\.where|\\s*\\.select|\\s*\\.insert|\\s*\\.update|\\s*\\.delete|\\s*\\|\\||\\s*res\\.(?:json|send))"
+  - pattern: "(?:\\b(?:where|select|insert|update|delete|create|json|send)\\s*\\([^)]*req\\.(?:body|query|params)\\.\\w+)"
     description: "Request data used directly without validation in query or response"
     weight: 0.9
     is_vulnerability: true
