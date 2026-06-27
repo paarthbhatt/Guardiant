@@ -129,6 +129,55 @@ export const DEFAULT_AGENT_CONFIGS: Record<AgentId, AgentConfig> = {
 };
 
 /**
+ * Application type classification
+ */
+export type AppType =
+  | 'ecommerce'
+  | 'crm'
+  | 'saas'
+  | 'blog'
+  | 'portfolio'
+  | 'social'
+  | 'dashboard'
+  | 'api'
+  | 'unknown';
+
+/**
+ * Application context produced by the App Classifier
+ * Agents consume this to decide which checks are relevant
+ */
+export interface AppContext {
+  /** Classified application type */
+  appType: AppType;
+  /** Application has payment/checkout flows */
+  hasPayments: boolean;
+  /** Application has authentication */
+  hasAuth: boolean;
+  /** Application has user roles/permissions */
+  hasUserRoles: boolean;
+  /** Application uses BaaS (Supabase, Firebase, etc.) */
+  hasBaaS: boolean;
+  /** Application has multi-tenant architecture */
+  hasMultiTenancy: boolean;
+  /** Application has file upload functionality */
+  hasFileUpload: boolean;
+  /** Tech stack details */
+  techStack: {
+    framework: string;
+    backend: string;
+    database: string;
+    baas?: string;
+    auth?: string;
+  };
+  /** Table/model names discovered from routes or schema */
+  dataModels: string[];
+  /** Routes that handle money, auth, admin */
+  sensitiveEndpoints: string[];
+  /** Rule IDs to skip for this app type */
+  suppressions: string[];
+}
+
+/**
  * Scan target information
  */
 export interface ScanTarget {
@@ -164,6 +213,8 @@ export interface AgentContext {
   logger?: unknown;
   /** Session data for maintaining state */
   session?: Record<string, unknown>;
+  /** App classification context (available after recon + classification) */
+  appContext?: AppContext;
 }
 
 /**

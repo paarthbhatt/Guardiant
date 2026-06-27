@@ -6,6 +6,8 @@ export type {
   AgentPriority,
   AgentConfig,
   AgentContext,
+  AppType,
+  AppContext,
   ScanTarget,
   ReconData,
   DiscoveredEndpoint,
