@@ -3,6 +3,8 @@ import { DEFAULT_AGENT_CONFIGS, createLogger } from '@guardiant/shared';
 import { agentRegistry } from '../agents/registry.js';
 import { AGENT_EXECUTION_ORDER } from './constants.js';
 import { createCVCAnalyzer, type CVCAnalyzer } from '../analyzers/cvc-analyzer.js';
+import { createAppClassifier, type AppClassifier } from '../classifier/app-classifier.js';
+import { createFindingValidator, type FindingValidator } from '../validators/finding-validator.js';
 
 import { createTIEFDetector, type TIEFDetector } from '../analyzers/tief-detector.js';
 
@@ -13,11 +15,15 @@ import { createTIEFDetector, type TIEFDetector } from '../analyzers/tief-detecto
 export class Orchestrator {
   private cvcAnalyzer: CVCAnalyzer;
   private tiefDetector: TIEFDetector;
+  private appClassifier: AppClassifier;
+  private findingValidator: FindingValidator;
   private logger = createLogger({ level: 'info' });
 
   constructor() {
     this.cvcAnalyzer = createCVCAnalyzer();
     this.tiefDetector = createTIEFDetector();
+    this.appClassifier = createAppClassifier();
+    this.findingValidator = createFindingValidator();
   }
 
   /**
@@ -55,6 +61,11 @@ export class Orchestrator {
       agentResults.recon = reconResult;
       reconData = reconResult.metadata.custom?.reconData as ReconData | undefined;
     }
+
+    // Phase 1.5: App Classification (between recon and agent swarm)
+    this.logger.info('Phase 1.5: Classifying application type...');
+    const appContext = this.appClassifier.classify(reconData, config.type === 'directory' ? config.target : undefined);
+    this.logger.info(`App classified as: ${appContext.appType} (${appContext.suppressions.length} suppressions)`);
 
     // Phase 2: Run all other agents in parallel
     this.logger.info('Phase 2: Running Agent Swarm...');
@@ -97,6 +108,7 @@ export class Orchestrator {
             type: config.type,
           },
           reconData,
+          appContext,
           config: agentConfig,
         });
 
@@ -122,19 +134,38 @@ export class Orchestrator {
       }
     }
 
-    // Phase 3: CVC Analysis - Find compound vulnerability chains
-    this.logger.info('Phase 3: Running CVC Analysis...');
+    // Collect all raw findings from Phase 2
     const allFindings: Finding[] = [];
     for (const result of Object.values(agentResults)) {
       allFindings.push(...result.findings);
     }
 
-    const chains = await this.cvcAnalyzer.findChains(allFindings, reconData?.dataFlows);
+    // Phase 2.5: Finding Validation — filter false positives and adjust confidence
+    this.logger.info('Phase 2.5: Validating findings...');
+    const { validated: validatedFindings, suppressed } = this.findingValidator.validate(allFindings, appContext);
+    this.logger.info(`Validation: ${validatedFindings.length} passed, ${suppressed.length} suppressed`);
+
+    // Update agent results to reflect only validated findings
+    const validatedByAgent = new Map<string, Finding[]>();
+    for (const f of validatedFindings) {
+      const agentId = f.discoveredBy;
+      if (!validatedByAgent.has(agentId)) validatedByAgent.set(agentId, []);
+      validatedByAgent.get(agentId)!.push(f);
+    }
+    for (const [agentId, result] of Object.entries(agentResults)) {
+      result.findings = validatedByAgent.get(agentId) ?? [];
+    }
+
+    // Use validated findings for all downstream phases (CVC, VCVF, TIEF, Exploit, Fix)
+    const findingsForAnalysis = validatedFindings;
+
+    // Phase 3: CVC Analysis - Find compound vulnerability chains
+    this.logger.info('Phase 3: Running CVC Analysis...');
+
+    const chains = await this.cvcAnalyzer.findChains(findingsForAnalysis, reconData?.dataFlows);
 
     // Phase 4: VCVF Pattern Matching
     this.logger.info('Phase 4: Running VCVF Analysis...');
-    // In a real implementation, we'd analyze the actual code
-    // For now, use recon data patterns
     const vcvfFingerprints: VCVFFingerprint[] = reconData?.vcvfPatterns.map(p => ({
       id: `vcvf_${p.type}_${Date.now()}`,
       patternType: p.type as VCVFPatternType,
@@ -146,7 +177,7 @@ export class Orchestrator {
 
     // Phase 5: TIEF Detection
     this.logger.info('Phase 5: Running TIEF Analysis...');
-    const trustInversions = await this.tiefDetector.detect(allFindings);
+    const trustInversions = await this.tiefDetector.detect(findingsForAnalysis);
 
     // Phase 6: Exploit Generation (depends on all findings from Phase 2 + analysis from Phase 3-5)
     if (config.phases?.exploit !== false) {
@@ -160,7 +191,7 @@ export class Orchestrator {
             reconData,
             config: DEFAULT_AGENT_CONFIGS.exploit,
             metadata: {
-              findings: allFindings,
+              findings: findingsForAnalysis,
               reconData,
               activeMode: config.activeExploit === true,
             },
@@ -190,7 +221,7 @@ export class Orchestrator {
             reconData,
             config: DEFAULT_AGENT_CONFIGS.fix,
             metadata: {
-              findings: allFindings,
+              findings: findingsForAnalysis,
               targetPath: config.target,
               mode: config.autoFix === true ? 'apply' : 'dry-run',
             },
@@ -209,13 +240,13 @@ export class Orchestrator {
     }
 
     this.logger.info(
-      `Scan complete: ${allFindings.length} findings, ${chains.length} chains, ` +
+      `Scan complete: ${findingsForAnalysis.length} findings, ${chains.length} chains, ` +
       `${trustInversions.length} trust inversions, ${exploitNarratives.length} exploit narratives, ` +
       `${fixPatches.length} fix patches`
     );
 
     return {
-      findings: allFindings,
+      findings: findingsForAnalysis,
       agentResults,
       chains,
       vcvfFingerprints,
