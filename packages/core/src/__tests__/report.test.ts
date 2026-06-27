@@ -268,7 +268,7 @@ describe('ReportGenerator', () => {
 			const output = generator.format(report);
 
 			expect(output).toContain('<!DOCTYPE html>');
-			expect(output).toContain('Security Scan Report');
+			expect(output).toContain('Guardiant Security Report');
 			expect(output).toContain('SQL Injection');
 		});
 	});
