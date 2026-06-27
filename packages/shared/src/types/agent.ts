@@ -215,6 +215,8 @@ export interface AgentContext {
   session?: Record<string, unknown>;
   /** App classification context (available after recon + classification) */
   appContext?: AppContext;
+  /** Files that have changed (for incremental scans) */
+  changedFiles?: string[];
 }
 
 /**

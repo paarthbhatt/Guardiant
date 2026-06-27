@@ -5,8 +5,10 @@ import { AGENT_EXECUTION_ORDER } from './constants.js';
 import { createCVCAnalyzer, type CVCAnalyzer } from '../analyzers/cvc-analyzer.js';
 import { createAppClassifier, type AppClassifier } from '../classifier/app-classifier.js';
 import { createFindingValidator, type FindingValidator } from '../validators/finding-validator.js';
+import { CriticAgent } from '../agents/critic-agent.js';
 
 import { createTIEFDetector, type TIEFDetector } from '../analyzers/tief-detector.js';
+import { DiffScanner } from '../scanner/diff-scanner.js';
 
 
 /**
@@ -17,6 +19,7 @@ export class Orchestrator {
   private tiefDetector: TIEFDetector;
   private appClassifier: AppClassifier;
   private findingValidator: FindingValidator;
+  private criticAgent: CriticAgent;
   private logger = createLogger({ level: 'info' });
 
   constructor() {
@@ -24,6 +27,7 @@ export class Orchestrator {
     this.tiefDetector = createTIEFDetector();
     this.appClassifier = createAppClassifier();
     this.findingValidator = createFindingValidator();
+    this.criticAgent = new CriticAgent();
   }
 
   /**
@@ -45,6 +49,18 @@ export class Orchestrator {
     const exploitNarratives: ExploitNarrative[] = [];
     const fixPatches: FixPatch[] = [];
     let reconData: ReconData | undefined;
+    let changedFiles: string[] | undefined;
+
+    if (config.incremental && config.type === 'directory') {
+      this.logger.info(`Running incremental scan using baseRef: ${config.baseRef || 'HEAD~1'}`);
+      const diffScanner = new DiffScanner(config.target);
+      if (diffScanner.isGitRepo()) {
+        changedFiles = diffScanner.getChangedFiles(config.baseRef || 'HEAD~1');
+        this.logger.info(`Detected ${changedFiles.length} changed files`);
+      } else {
+        this.logger.warn('Target is not a git repository, falling back to full scan');
+      }
+    }
 
     // Phase 1: Recon (must run first)
     this.logger.info('Phase 1: Running Recon Agent...');
@@ -57,6 +73,7 @@ export class Orchestrator {
           type: config.type,
         },
         config: DEFAULT_AGENT_CONFIGS.recon,
+        changedFiles,
       });
       agentResults.recon = reconResult;
       reconData = reconResult.metadata.custom?.reconData as ReconData | undefined;
@@ -110,6 +127,7 @@ export class Orchestrator {
           reconData,
           appContext,
           config: agentConfig,
+          changedFiles,
         });
 
         this.logger.info(`${agentId} completed: ${result.findings.length} findings`);
@@ -135,13 +153,19 @@ export class Orchestrator {
     }
 
     // Collect all raw findings from Phase 2
-    const allFindings: Finding[] = [];
+    let allFindings: Finding[] = [];
     for (const result of Object.values(agentResults)) {
       allFindings.push(...result.findings);
     }
 
-    // Phase 2.5: Finding Validation — filter false positives and adjust confidence
-    this.logger.info('Phase 2.5: Validating findings...');
+    // Phase 2.5: Critic Agent — LLM reflection to filter false positives
+    this.logger.info('Phase 2.5: Running Critic Agent...');
+    const preCriticCount = allFindings.length;
+    allFindings = await this.criticAgent.reviewFindings(allFindings);
+    this.logger.info(`Critic Agent filtered ${preCriticCount - allFindings.length} false positives`);
+
+    // Phase 2.6: Finding Validation — deterministic filtering and adjust confidence
+    this.logger.info('Phase 2.6: Validating findings...');
     const { validated: validatedFindings, suppressed } = this.findingValidator.validate(allFindings, appContext);
     this.logger.info(`Validation: ${validatedFindings.length} passed, ${suppressed.length} suppressed`);
 

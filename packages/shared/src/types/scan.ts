@@ -26,9 +26,13 @@ export interface ScanConfig {
   agentConfigs?: Partial<Record<AgentId, AgentConfig>>;
   /** Maximum concurrent agents */
   maxConcurrency?: number;
-  /** Global timeout in milliseconds */
+  /** Optional timeout in milliseconds */
   timeout?: number;
-  /** Stop on first critical finding */
+  /** Whether to perform an incremental scan based on git diff */
+  incremental?: boolean;
+  /** The git base reference to compare against (e.g. 'HEAD~1', 'main') */
+  baseRef?: string;
+  /** Stop scanning if a critical vulnerability is found */
   stopOnCritical?: boolean;
   /** Generate reports */
   generateReports?: boolean;

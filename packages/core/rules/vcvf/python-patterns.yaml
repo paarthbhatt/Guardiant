@@ -1,0 +1,31 @@
+name: "Python Vulnerability Patterns"
+version: "1.0.0"
+rules:
+  - id: "py-sql-injection"
+    name: "Python SQL Injection"
+    description: "Detects potential SQL injection in Python code"
+    severity: "high"
+    patterns:
+      - type: "call"
+        method: "execute"
+        args:
+          - type: "binary_operator"
+            operator: "+"
+          - type: "string"
+            format: "f-string"
+    remediation: "Use parameterized queries instead of string concatenation or f-strings."
+    
+  - id: "py-command-injection"
+    name: "Python Command Injection"
+    description: "Detects potential command injection via os.system or subprocess"
+    severity: "high"
+    patterns:
+      - type: "call"
+        object: "os"
+        method: "system"
+      - type: "call"
+        object: "subprocess"
+        method: "Popen"
+        args:
+          shell: true
+    remediation: "Avoid using shell=True and pass arguments as a list to subprocess.Popen."
