@@ -3,7 +3,7 @@ import { z } from 'zod';
 /**
  * LLM Provider type
  */
-export type LLMProvider = 'anthropic' | 'openrouter' | 'gemini';
+export type LLMProvider = 'anthropic' | 'openrouter' | 'gemini' | 'openai' | 'zenmux' | 'nvidia';
 
 /**
  * LLM configuration
@@ -32,11 +32,23 @@ export const DEFAULT_LLM_CONFIGS: Record<LLMProvider, { model: string; maxTokens
     maxTokens: 4096,
   },
   openrouter: {
-    model: 'anthropic/claude-sonnet-4',
+    model: 'nvidia/nemotron-3-ultra-550b-a55b:free',
     maxTokens: 4096,
   },
   gemini: {
-    model: 'gemini-2.0-flash',
+    model: 'gemini-2.5-flash',
+    maxTokens: 4096,
+  },
+  openai: {
+    model: 'gpt-4o',
+    maxTokens: 4096,
+  },
+  zenmux: {
+    model: 'stepfun/step-3.7-flash-free',
+    maxTokens: 4096,
+  },
+  nvidia: {
+    model: 'meta/llama-3.3-70b-instruct',
     maxTokens: 4096,
   },
 };
