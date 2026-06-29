@@ -88,6 +88,20 @@ scan the current directory, and generate an HTML report:
 Confirm the report was written successfully.
 ```
 
+### No-Key Scanner (Use AI Agent as Orchestrator)
+
+```text
+Please read the Guardiant README at https://github.com/paarthbhatt/Guardiant to understand the context, architecture, and pipeline of the Guardiant AppSec Scanner. Pay special attention to the VCVF, CVC, and TIEF concepts as well as the 5-phase scan pipeline.
+
+Once you have read and understood it, you have read-access to my repository. I want you to act as the Guardiant Orchestrator and manually run the security scanning swarm pipeline against my codebase:
+1. Recon & Classification: Scan the backend/src structure, routes, and role configurations to map out the application's auth surface.
+2. Swarm Analysis: Manually inspect each controller and route for vulnerabilities (covering IDORs, privilege escalations, hardcoded secrets, SQL injection, etc.).
+3. Critic Reflection: Audit each candidate finding against the surrounding code context to verify if it is a genuine vulnerability or a false positive.
+4. Trust Inversions & Exploits: Draft precise exploit narratives showing how client-side checks can be bypassed or unauthorized IDs can be queried.
+5. Fixes: Generate surgical, correct code diffs for any true positives.
+6. Final Report: Compile everything into a final Markdown report.
+```
+
 ### Quick reconnaissance only
 
 ```
