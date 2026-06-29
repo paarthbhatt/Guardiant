@@ -7,6 +7,9 @@ interface Config {
   anthropicApiKey?: string;
   openrouterApiKey?: string;
   geminiApiKey?: string;
+  openaiApiKey?: string;
+  zenmuxApiKey?: string;
+  nvidiaApiKey?: string;
   defaultFormat?: 'json' | 'markdown' | 'html';
   defaultAudience?: 'executive' | 'developer' | 'security';
   maxConcurrency?: number;
@@ -35,6 +38,9 @@ configCommand
       'anthropicApiKey',
       'openrouterApiKey',
       'geminiApiKey',
+      'openaiApiKey',
+      'zenmuxApiKey',
+      'nvidiaApiKey',
       'defaultFormat',
       'defaultAudience',
       'maxConcurrency',

@@ -86,8 +86,19 @@ function generateReport(
   if (results.trustInversions.length > 0) {
     lines.push(`## Trust Inversions`);
     lines.push('');
-    for (const inv of results.trustInversions as Array<{ severity: string; type: string; misplacedTrust: string; actualBoundary: string }>) {
+    for (const inv of results.trustInversions as Array<{ severity: string; type: string; misplacedTrust: string; actualBoundary: string; findingIds?: string[] }>) {
       lines.push(`- **[${inv.severity}] ${inv.type}:** ${inv.misplacedTrust} → ${inv.actualBoundary}`);
+      if (inv.findingIds && inv.findingIds.length > 0) {
+        for (const fid of inv.findingIds) {
+          const finding = results.findings.find(f => f.id === fid);
+          if (finding) {
+            const location = finding.evidence.file
+              ? ` (in \`${finding.evidence.file}:${finding.evidence.line ?? '?'}\`)`
+              : '';
+            lines.push(`  - **[${finding.severity.toUpperCase()}]** ${finding.title}${location}`);
+          }
+        }
+      }
     }
     lines.push('');
   }
