@@ -71,7 +71,7 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.39.0",
+    "@anthropic-ai/sdk": "^0.106.0",
     "@babel/parser": "^8.0.0",
     "@babel/traverse": "^8.0.0",
     "@google/generative-ai": "^0.21.0",
