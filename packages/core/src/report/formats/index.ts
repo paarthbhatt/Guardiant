@@ -81,6 +81,18 @@ export function formatAsMarkdown(report: Report, audience: ReportAudience): stri
 			lines.push(`**Misplaced Trust:** ${inv.misplacedTrust}`);
 			lines.push(`**Expected:** ${inv.expectedBoundary}`);
 			lines.push(`**Actual:** ${inv.actualBoundary}`);
+			if (inv.findingIds && inv.findingIds.length > 0) {
+				lines.push('**Underlying Findings:**');
+				for (const fid of inv.findingIds) {
+					const finding = report.findings.find(f => f.id === fid);
+					if (finding) {
+						const location = finding.evidence.file
+							? ` (in \`${finding.evidence.file}:${finding.evidence.line ?? '?'}\`)`
+							: '';
+						lines.push(`- **[${finding.severity.toUpperCase()}]** ${finding.title}${location}`);
+					}
+				}
+			}
 			lines.push('');
 		}
 	}
