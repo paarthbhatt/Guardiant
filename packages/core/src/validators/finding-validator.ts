@@ -1,6 +1,8 @@
 import type { Finding, AppContext } from '@guardiant/shared';
 import { createLogger } from '@guardiant/shared';
 import { SUPPRESSION_RULES, type SuppressionRule } from './suppression-rules.js';
+import type { CodeIndex } from '../indexer/code-index.js';
+import { EvidenceVerifier } from '../evidence/evidence-verifier.js';
 
 const logger = createLogger({ level: 'info' });
 
@@ -64,7 +66,7 @@ export class FindingValidator {
    * Validate a batch of findings, filtering out false positives
    * and adjusting confidence scores based on evidence quality.
    */
-  validate(findings: Finding[], appContext?: AppContext): {
+  validate(findings: Finding[], appContext?: AppContext, codeIndex?: CodeIndex): {
     validated: Finding[];
     suppressed: ValidationResult[];
     adjusted: ValidationResult[];
@@ -74,7 +76,7 @@ export class FindingValidator {
     const adjusted: ValidationResult[] = [];
 
     for (const finding of findings) {
-      const result = this.validateOne(finding, appContext);
+      const result = this.validateOne(finding, appContext, codeIndex);
 
       if (!result.passed) {
         suppressed.push(result);
@@ -100,7 +102,7 @@ export class FindingValidator {
   /**
    * Validate a single finding.
    */
-  validateOne(finding: Finding, appContext?: AppContext): ValidationResult {
+  validateOne(finding: Finding, appContext?: AppContext, codeIndex?: CodeIndex): ValidationResult {
     const originalConfidence = finding.confidence;
 
     // Step 1: Check suppression rules
@@ -117,14 +119,45 @@ export class FindingValidator {
       }
     }
 
+    // Step 1.5: Verify evidence accuracy if codeIndex is provided
+    if (codeIndex && finding.evidence && finding.evidence.file && finding.evidence.line) {
+      const verifier = new EvidenceVerifier(codeIndex);
+      const verified = verifier.verify(finding.evidence);
+      if (verified.verificationStatus === 'mismatch') {
+        return {
+          finding,
+          passed: false,
+          suppressedReason: `Evidence mismatch: claimed snippet doesn't match actual code at ${finding.evidence.file}:${finding.evidence.line}`,
+          suppressedBy: 'evidence_mismatch',
+          originalConfidence,
+          adjustedConfidence: 0,
+        };
+      }
+    }
+
     // Step 2: Assess evidence quality
     const evidenceQuality = this.assessEvidence(finding);
 
     // Step 3: Dynamic confidence scoring
-    const adjustedConfidence = this.calculateDynamicConfidence(
+    let adjustedConfidence = this.calculateDynamicConfidence(
       originalConfidence,
       evidenceQuality
     );
+
+    // Step 4: Role-scoped CRM/internal-app IDOR adjustment
+    if (appContext && (finding.category === 'A01_BROKEN_ACCESS_CONTROL' || finding.tags.includes('idor'))) {
+      const isInternalOrCrm = appContext.appType === 'dashboard' || 
+                              appContext.appType === 'api' || 
+                              appContext.appType === 'social' || 
+                              appContext.hasUserRoles || 
+                              (appContext.hasAuth && !appContext.hasBaaS);
+      if (isInternalOrCrm) {
+        adjustedConfidence = Math.max(0.45, adjustedConfidence - 0.2);
+        if (!finding.description.includes('internal/CRM')) {
+          finding.description += ' [NOTE: This application context (internal/CRM/role-based) may enforce access control via global role/vertical guards rather than per-user ownership. Verification recommended.]';
+        }
+      }
+    }
 
     return {
       finding,

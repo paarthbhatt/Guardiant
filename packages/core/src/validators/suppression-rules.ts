@@ -1,4 +1,6 @@
 import type { Finding, AppContext } from '@guardiant/shared';
+import { existsSync } from 'fs';
+import { join } from 'path';
 
 /**
  * A suppression rule that filters out known false positive patterns.
@@ -101,6 +103,50 @@ const appTypeMismatch: SuppressionRule = {
 };
 
 /**
+ * Suppresses findings referencing files that do not exist on disk.
+ */
+const fileDoesNotExist: SuppressionRule = {
+  id: 'file_does_not_exist',
+  description: 'Finding references a file that does not exist in the target directory',
+  matches: (finding, appContext) => {
+    const rootPath = (appContext as any)?.rootPath || '';
+    if (!rootPath || !finding.evidence.file) return false;
+    
+    // Some findings have URLs or generic names like 'HTML page' / 'inline script' / 'data attribute', skip verification for those
+    if (finding.evidence.file.startsWith('http') || ['html page', 'inline script', 'data attribute', 'hidden input'].includes(finding.evidence.file.toLowerCase())) {
+      return false;
+    }
+
+    const fullPath = join(rootPath, finding.evidence.file);
+    return !existsSync(fullPath);
+  },
+};
+
+/**
+ * Suppresses secrets findings in test files, scripts, and mock files.
+ */
+const testFilesNotSecrets: SuppressionRule = {
+  id: 'test_files_not_secrets',
+  description: 'Exposed secrets or mock credentials in test files and scripts are ignored',
+  matches: (finding) => {
+    if (finding.discoveredBy !== 'secrets') return false;
+    const file = (finding.evidence.file || '').toLowerCase().replace(/\\/g, '/');
+    return (
+      file.includes('/tests/') ||
+      file.includes('/test/') ||
+      file.includes('__tests__') ||
+      file.includes('/scripts/') ||
+      file.endsWith('.test.js') ||
+      file.endsWith('.test.ts') ||
+      file.endsWith('.spec.js') ||
+      file.endsWith('.spec.ts') ||
+      file.endsWith('securitychecks.js') ||
+      file.endsWith('checksecrets.js')
+    );
+  },
+};
+
+/**
  * All suppression rules, evaluated in order.
  * First match wins — the finding is suppressed.
  */
@@ -108,4 +154,6 @@ export const SUPPRESSION_RULES: SuppressionRule[] = [
   nextPublicNotSecret,
   vcvfPatternOnly,
   appTypeMismatch,
+  fileDoesNotExist,
+  testFilesNotSecrets,
 ];
