@@ -106,7 +106,7 @@ export class AppClassifier {
     const routes = this.extractRoutes(reconData);
     const codeContent = this.loadCodeContent(targetPath, reconData);
 
-    const appType = this.detectAppType(routes, codeContent);
+    const appType = this.detectAppType(routes, codeContent, targetPath);
     const hasPayments = this.detectPayments(routes, codeContent);
     const hasAuth = this.detectAuth(reconData, codeContent);
     const hasUserRoles = this.detectRoles(codeContent);
@@ -191,10 +191,12 @@ export class AppClassifier {
       'package.json', 'routes.ts', 'routes.js', 'router.ts', 'router.js',
       'app.ts', 'app.js', 'server.ts', 'server.js', 'index.ts', 'index.js',
       'schema.ts', 'schema.js', 'models.ts', 'models.js', 'prisma',
+      'role.ts', 'role.js', 'roles.ts', 'roles.js', 'guard.ts', 'guard.js',
+      'roleguard.ts', 'roleguard.js', 'role-guard.ts', 'role-guard.js',
     ]);
 
     const scanDir = (dir: string, depth: number): void => {
-      if (depth > 2) return; // Only scan top 2 levels
+      if (depth > 5) return; // Scan up to 5 levels deep
       let entries: string[];
       try {
         entries = readdirSync(dir);
@@ -211,7 +213,9 @@ export class AppClassifier {
             scanDir(fullPath, depth + 1);
           } else if (stats.isFile()) {
             const ext = extname(fullPath).toLowerCase();
-            if (['.ts', '.js', '.json'].includes(ext) && (targetFiles.has(entry) || targetFiles.has(entry.replace(ext, '')))) {
+            const filenameLower = entry.toLowerCase();
+            const nameWithoutExt = filenameLower.replace(ext, '');
+            if (['.ts', '.js', '.json'].includes(ext) && (targetFiles.has(filenameLower) || targetFiles.has(nameWithoutExt))) {
               try {
                 contents.push(readFileSync(fullPath, 'utf-8'));
               } catch {
@@ -232,11 +236,31 @@ export class AppClassifier {
   /**
    * Detect the primary application type.
    */
-  private detectAppType(routes: string[], code: string): AppType {
+  private detectAppType(routes: string[], code: string, targetPath?: string): AppType {
     const scores: Record<AppType, number> = {
       ecommerce: 0, crm: 0, saas: 0, blog: 0,
       portfolio: 0, social: 0, dashboard: 0, api: 0, unknown: 0,
     };
+
+    // Boost scores based on project directory name hints
+    if (targetPath) {
+      const folderName = targetPath.toLowerCase();
+      if (folderName.includes('crm')) {
+        scores['crm'] += 15;
+      }
+      if (folderName.includes('shop') || folderName.includes('store') || folderName.includes('cart') || folderName.includes('market') || folderName.includes('checkout')) {
+        scores['ecommerce'] += 15;
+      }
+      if (folderName.includes('blog')) {
+        scores['blog'] += 15;
+      }
+      if (folderName.includes('social') || folderName.includes('feed') || folderName.includes('chat')) {
+        scores['social'] += 15;
+      }
+      if (folderName.includes('saas') || folderName.includes('tenant') || folderName.includes('multi')) {
+        scores['saas'] += 15;
+      }
+    }
 
     const routeStr = routes.join(' ');
 
