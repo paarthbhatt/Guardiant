@@ -1,6 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
-import { GoogleGenerativeAI } from '@google/generative-ai';
 import type { LLMProvider, LLMConfig, LLMRequest, LLMResponse } from '@guardiant/shared';
 import { DEFAULT_LLM_CONFIGS } from '@guardiant/shared';
 import { z } from 'zod';
@@ -21,6 +20,8 @@ interface LLMProviderClient {
 export class LLMClient {
   private providers: LLMProviderClient[] = [];
   private defaultConfig: LLMConfig;
+  private lastRequestTimes = new Map<string, number>();
+  private disabledProviders = new Set<string>();
 
   constructor(config: Partial<LLMConfig> = {}) {
     this.defaultConfig = {
@@ -33,23 +34,32 @@ export class LLMClient {
     this.initializeProviders();
   }
 
-  /**
-   * Initialize available providers in priority order
-   */
   private initializeProviders(): void {
-    // Priority: Anthropic -> OpenRouter -> Gemini
-    const providerConfigs: Array<{ name: LLMProvider; create: () => LLMProviderClient | null }> = [
-      { name: 'anthropic', create: () => this.createAnthropicProvider() },
-      { name: 'openrouter', create: () => this.createOpenRouterProvider() },
-      { name: 'gemini', create: () => this.createGeminiProvider() },
+    const userConfigured: LLMProviderClient[] = [];
+    const fallbackConfigured: LLMProviderClient[] = [];
+
+    // Priority: Nvidia -> OpenRouter -> Gemini -> Zenmux -> Anthropic -> OpenAI
+    const providerConfigs: Array<{ name: LLMProvider; envKey: string; create: () => LLMProviderClient | null }> = [
+      { name: 'nvidia', envKey: 'NVIDIA_API_KEY', create: () => this.createNvidiaProvider() },
+      { name: 'openrouter', envKey: 'OPENROUTER_API_KEY', create: () => this.createOpenRouterProvider() },
+      { name: 'gemini', envKey: 'GEMINI_API_KEY', create: () => this.createGeminiProvider() },
+      { name: 'zenmux', envKey: 'ZENMUX_API_KEY', create: () => this.createZenmuxProvider() },
+      { name: 'anthropic', envKey: 'ANTHROPIC_API_KEY', create: () => this.createAnthropicProvider() },
+      { name: 'openai', envKey: 'OPENAI_API_KEY', create: () => this.createOpenAIProvider() },
     ];
 
-    for (const { create } of providerConfigs) {
+    for (const { envKey, create } of providerConfigs) {
       const provider = create();
       if (provider) {
-        this.providers.push(provider);
+        if (process.env[envKey]) {
+          userConfigured.push(provider);
+        } else {
+          fallbackConfigured.push(provider);
+        }
       }
     }
+
+    this.providers = [...userConfigured, ...fallbackConfigured];
   }
 
   /**
@@ -100,6 +110,168 @@ export class LLMClient {
   }
 
   /**
+   * Create OpenAI provider
+   */
+  private createOpenAIProvider(): LLMProviderClient | null {
+    const apiKey = process.env.OPENAI_API_KEY ?? this.defaultConfig.apiKey;
+    if (!apiKey) return null;
+
+    const client = new OpenAI({
+      apiKey,
+      baseURL: process.env.OPENAI_BASE_URL ?? 'https://api.openai.com/v1',
+    });
+
+    return {
+      name: 'openai',
+      available: async () => true,
+      complete: async (request: LLMRequest) => {
+        const startTime = Date.now();
+        const model = process.env.OPENAI_MODEL ?? process.env.GUARDIANT_OPENAI_MODEL ?? this.defaultConfig.model ?? DEFAULT_LLM_CONFIGS.openai.model;
+        const maxTokens = request.maxTokens ?? this.defaultConfig.maxTokens ?? DEFAULT_LLM_CONFIGS.openai.maxTokens;
+
+        const messages: OpenAI.ChatCompletionMessageParam[] = [];
+        if (request.system) {
+          messages.push({ role: 'system', content: request.system });
+        }
+        for (const m of request.messages) {
+          messages.push({
+            role: m.role as 'system' | 'user' | 'assistant',
+            content: m.content,
+          });
+        }
+
+        const response = await client.chat.completions.create({
+          model,
+          max_tokens: maxTokens,
+          messages,
+        });
+
+        const content = response.choices[0]?.message.content ?? '';
+
+        return {
+          content,
+          tokensUsed: {
+            input: response.usage?.prompt_tokens ?? 0,
+            output: response.usage?.completion_tokens ?? 0,
+            total: (response.usage?.prompt_tokens ?? 0) + (response.usage?.completion_tokens ?? 0),
+          },
+          model,
+          provider: 'openai',
+          duration: Date.now() - startTime,
+        };
+      },
+    };
+  }
+
+  /**
+   * Create Zenmux provider
+   */
+  private createZenmuxProvider(): LLMProviderClient | null {
+    const apiKey = process.env.ZENMUX_API_KEY;
+    if (!apiKey) return null;
+
+    const client = new OpenAI({
+      apiKey,
+      baseURL: process.env.ZENMUX_BASE_URL ?? 'https://zenmux.ai/api/v1',
+    });
+
+    return {
+      name: 'zenmux',
+      available: async () => true,
+      complete: async (request: LLMRequest) => {
+        const startTime = Date.now();
+        const model = process.env.ZENMUX_MODEL ?? DEFAULT_LLM_CONFIGS.zenmux.model;
+        const maxTokens = request.maxTokens ?? this.defaultConfig.maxTokens ?? DEFAULT_LLM_CONFIGS.zenmux.maxTokens;
+
+        const messages: OpenAI.ChatCompletionMessageParam[] = [];
+        if (request.system) {
+          messages.push({ role: 'system', content: request.system });
+        }
+        for (const m of request.messages) {
+          messages.push({
+            role: m.role as 'system' | 'user' | 'assistant',
+            content: m.content,
+          });
+        }
+
+        const response = await client.chat.completions.create({
+          model,
+          max_tokens: maxTokens,
+          messages,
+        });
+
+        const content = response.choices[0]?.message.content ?? '';
+
+        return {
+          content,
+          tokensUsed: {
+            input: response.usage?.prompt_tokens ?? 0,
+            output: response.usage?.completion_tokens ?? 0,
+            total: (response.usage?.prompt_tokens ?? 0) + (response.usage?.completion_tokens ?? 0),
+          },
+          model,
+          provider: 'zenmux',
+          duration: Date.now() - startTime,
+        };
+      },
+    };
+  }
+
+  /**
+   * Create Nvidia provider
+   */
+  private createNvidiaProvider(): LLMProviderClient | null {
+    const apiKey = process.env.NVIDIA_API_KEY;
+    if (!apiKey) return null;
+
+    const client = new OpenAI({
+      apiKey,
+      baseURL: process.env.NVIDIA_BASE_URL ?? 'https://integrate.api.nvidia.com/v1',
+    });
+
+    return {
+      name: 'nvidia',
+      available: async () => true,
+      complete: async (request: LLMRequest) => {
+        const startTime = Date.now();
+        const model = process.env.NVIDIA_MODEL ?? DEFAULT_LLM_CONFIGS.nvidia.model;
+        const maxTokens = request.maxTokens ?? this.defaultConfig.maxTokens ?? DEFAULT_LLM_CONFIGS.nvidia.maxTokens;
+
+        const messages: OpenAI.ChatCompletionMessageParam[] = [];
+        if (request.system) {
+          messages.push({ role: 'system', content: request.system });
+        }
+        for (const m of request.messages) {
+          messages.push({
+            role: m.role as 'system' | 'user' | 'assistant',
+            content: m.content,
+          });
+        }
+
+        const response = await client.chat.completions.create({
+          model,
+          max_tokens: maxTokens,
+          messages,
+        });
+
+        const content = response.choices[0]?.message.content ?? '';
+
+        return {
+          content,
+          tokensUsed: {
+            input: response.usage?.prompt_tokens ?? 0,
+            output: response.usage?.completion_tokens ?? 0,
+            total: (response.usage?.prompt_tokens ?? 0) + (response.usage?.completion_tokens ?? 0),
+          },
+          model,
+          provider: 'nvidia',
+          duration: Date.now() - startTime,
+        };
+      },
+    };
+  }
+
+  /**
    * Create OpenRouter provider
    */
   private createOpenRouterProvider(): LLMProviderClient | null {
@@ -108,7 +280,7 @@ export class LLMClient {
 
     const client = new OpenAI({
       apiKey,
-      baseURL: 'https://openrouter.ai/api/v1',
+      baseURL: process.env.OPENROUTER_BASE_URL ?? 'https://openrouter.ai/api/v1',
       defaultHeaders: {
         'HTTP-Referer': 'https://guardiant.dev',
         'X-Title': 'Guardiant Security Scanner',
@@ -120,7 +292,7 @@ export class LLMClient {
       available: async () => true,
       complete: async (request: LLMRequest) => {
         const startTime = Date.now();
-        const model = this.defaultConfig.model ?? DEFAULT_LLM_CONFIGS.openrouter.model;
+        const model = process.env.OPENROUTER_MODEL ?? DEFAULT_LLM_CONFIGS.openrouter.model;
         const maxTokens = request.maxTokens ?? this.defaultConfig.maxTokens ?? DEFAULT_LLM_CONFIGS.openrouter.maxTokens;
 
         const messages: OpenAI.ChatCompletionMessageParam[] = [];
@@ -164,30 +336,44 @@ export class LLMClient {
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) return null;
 
-    const genAI = new GoogleGenerativeAI(apiKey);
+    const client = new OpenAI({
+      apiKey,
+      baseURL: process.env.GEMINI_BASE_URL ?? 'https://generativelanguage.googleapis.com/v1beta',
+    });
 
     return {
       name: 'gemini',
       available: async () => true,
       complete: async (request: LLMRequest) => {
         const startTime = Date.now();
-        const model = this.defaultConfig.model ?? DEFAULT_LLM_CONFIGS.gemini.model;
+        const model = process.env.GEMINI_MODEL ?? DEFAULT_LLM_CONFIGS.gemini.model;
+        const maxTokens = request.maxTokens ?? this.defaultConfig.maxTokens ?? DEFAULT_LLM_CONFIGS.gemini.maxTokens;
 
-        const geminiModel = genAI.getGenerativeModel({ model });
+        const messages: OpenAI.ChatCompletionMessageParam[] = [];
+        if (request.system) {
+          messages.push({ role: 'system', content: request.system });
+        }
+        for (const m of request.messages) {
+          messages.push({
+            role: m.role as 'system' | 'user' | 'assistant',
+            content: m.content,
+          });
+        }
 
-        const prompt = request.system
-          ? `${request.system}\n\n${request.messages.map(m => `${m.role}: ${m.content}`).join('\n')}`
-          : request.messages.map(m => `${m.role}: ${m.content}`).join('\n');
+        const response = await client.chat.completions.create({
+          model,
+          max_tokens: maxTokens,
+          messages,
+        });
 
-        const result = await geminiModel.generateContent(prompt);
-        const content = result.response.text();
+        const content = response.choices[0]?.message.content ?? '';
 
         return {
           content,
           tokensUsed: {
-            input: 0, // Gemini doesn't provide token counts in the same way
-            output: 0,
-            total: 0,
+            input: response.usage?.prompt_tokens ?? 0,
+            output: response.usage?.completion_tokens ?? 0,
+            total: (response.usage?.prompt_tokens ?? 0) + (response.usage?.completion_tokens ?? 0),
           },
           model,
           provider: 'gemini',
@@ -204,17 +390,56 @@ export class LLMClient {
     const errors: Error[] = [];
 
     for (const provider of this.providers) {
+      if (this.disabledProviders.has(provider.name)) {
+        continue;
+      }
       try {
         const isAvailable = await provider.available();
         if (!isAvailable) {
           continue;
         }
 
-        return await provider.complete(request);
+        // Rate limits enforcing (to prevent crossing RPM limits)
+        const now = Date.now();
+        const minIntervals: Record<string, number> = {
+          gemini: 4000,      // 15 RPM -> 4s interval
+          nvidia: 1500,      // 40 RPM -> 1.5s interval
+          openrouter: 500,   // minimal delay
+          zenmux: 500,
+        };
+        const interval = minIntervals[provider.name] ?? 0;
+        const lastTime = this.lastRequestTimes.get(provider.name) ?? 0;
+        const elapsed = now - lastTime;
+        if (elapsed < interval) {
+          const waitTime = interval - elapsed;
+          await new Promise(resolve => setTimeout(resolve, waitTime));
+        }
+
+        const response = await provider.complete(request);
+        if (!response.content || response.content.trim() === '') {
+          throw new Error('LLM returned an empty response');
+        }
+        this.lastRequestTimes.set(provider.name, Date.now());
+        return response;
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
         errors.push(new Error(`${provider.name}: ${errorMessage}`));
         console.warn(`LLM provider ${provider.name} failed, trying next provider...`);
+        
+        // Disable provider for the rest of the scan session on permanent failure triggers
+        const errUpper = errorMessage.toUpperCase();
+        if (
+          errUpper.includes('QUOTA') ||
+          errUpper.includes('EXHAUSTED') ||
+          errUpper.includes('401') ||
+          errUpper.includes('UNAUTHORIZED') ||
+          errUpper.includes('BILLING') ||
+          errUpper.includes('NOT_FOUND') ||
+          errUpper.includes('NOT FOUND')
+        ) {
+          console.warn(`LLM provider ${provider.name} disabled for session due to permanent error.`);
+          this.disabledProviders.add(provider.name);
+        }
         continue;
       }
     }
