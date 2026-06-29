@@ -223,54 +223,44 @@ Test for:
       findings.push(...httpFindings);
     }
 
-    // Strategy 2: Code-based IDOR detection (medium confidence)
-    // Look for routes with :id params that lack ownership checks
-    const idorCodeEvidence = this.findAnyCodeEvidence(context, [
-      {
-        // Route with ID param but no ownership check nearby
-        pattern: /(?:app|router)\.(get|put|delete|patch)\s*\(\s*['"`][^'"`]*:id[^'"`]*['"`]\s*,\s*(?!.*(?:owner|userId|req\.user\.id|auth\.uid))/gi,
-        description: 'Route with ID parameter missing ownership validation',
-      },
-      {
-        // Supabase query filtering by user-provided ID without auth check
-        pattern: /\.from\s*\([^)]+\)\s*\.select[^}]*\.eq\s*\(\s*['"`]id['"`]\s*,\s*req\.(?:params|body|query)\.id/gi,
-        description: 'Supabase query using client-provided ID without ownership check',
-      },
-      {
-        // Direct object reference without authorization
-        pattern: /(?:getUser|findById|findOne|get)\s*\(\s*req\.(?:params|body|query)\.(?:id|userId)\s*\)\s*(?!.*(?:req\.user|session|auth))/gi,
-        description: 'Direct object lookup by user-supplied ID without authorization',
-      },
-    ]);
-
-    if (idorCodeEvidence) {
-      findings.push(
-        createFinding(this.id)
-          .title('Potential IDOR Vulnerability')
-          .description(
-            `Found ${idorCodeEvidence.description} in ${idorCodeEvidence.file}:${idorCodeEvidence.line}. ` +
-            'Resources accessed by predictable IDs without proper authorization checks may allow ' +
-            'attackers to access or modify other users\' data by manipulating identifiers.'
-          )
-          .severity('high')
-          .cvssScore(8.1)
-          .category('A01_BROKEN_ACCESS_CONTROL')
-          .confidence(0.8)
-          .vcvfPattern('auth_authz_conflation')
-          .evidence({
-            file: idorCodeEvidence.file,
-            line: idorCodeEvidence.line,
-            snippet: idorCodeEvidence.snippet,
-          })
-          .remediation({
-            summary: 'Implement proper authorization checks for all resource access.',
-            steps: [
-              'Verify user ownership before allowing access to any resource',
-              'Use indirect references (e.g., session-based IDs) instead of direct IDs',
-              'Implement role-based or permission-based access control',
-              'Log all access attempts for security auditing',
-            ],
-            codeExample: `// ❌ Vulnerable to IDOR
+    // Strategy 2: AST-based IDOR detection (medium confidence)
+    const codeIndex = (context as any).metadata?.codeIndex;
+    if (context.target.type === 'directory' && codeIndex) {
+      try {
+        const { IDORDetector } = await import('../detectors/idor-detector.js');
+        const detector = new IDORDetector(codeIndex);
+        
+        for (const handler of codeIndex.routeHandlers) {
+          const result = detector.detect(handler);
+          if (result) {
+            findings.push(
+              createFinding(this.id)
+                .title(result.type === 'idor' ? 'Potential IDOR Vulnerability' : 'Broken Access Control')
+                .description(
+                  `${result.evidence.reasoning} found in ${result.evidence.file}:${result.evidence.line}. ` +
+                  'Resources accessed by predictable IDs without proper authorization checks may allow ' +
+                  'attackers to access or modify other users\' data by manipulating identifiers.'
+                )
+                .severity(result.severity)
+                .cvssScore(result.severity === 'critical' ? 9.1 : 8.1)
+                .category('A01_BROKEN_ACCESS_CONTROL')
+                .confidence(result.confidence)
+                .vcvfPattern('auth_authz_conflation')
+                .evidence({
+                  file: result.evidence.file,
+                  line: result.evidence.line,
+                  endLine: result.evidence.endLine,
+                  snippet: result.evidence.snippet,
+                })
+                .remediation({
+                  summary: 'Implement proper authorization checks for all resource access.',
+                  steps: [
+                    'Verify user ownership before allowing access to any resource',
+                    'Use indirect references (e.g., session-based IDs) instead of direct IDs',
+                    'Implement role-based or permission-based access control',
+                    'Log all access attempts for security auditing',
+                  ],
+                  codeExample: `// ❌ Vulnerable to IDOR
 app.get('/api/users/:id', (req, res) => {
   const user = db.getUser(req.params.id);
   res.json(user); // No auth check!
@@ -284,12 +274,55 @@ app.get('/api/users/:id', auth, (req, res) => {
   const user = db.getUser(req.params.id);
   res.json(user);
 });`,
-            effort: 'medium',
-            priority: 2,
-          })
-          .tags(['auth', 'idor', 'access-control'])
-          .build()
-      );
+                  effort: 'medium',
+                  priority: 2,
+                })
+                .tags(['auth', 'idor', 'access-control'])
+                .build()
+            );
+          }
+        }
+
+        // Run ScopingGapDetector
+        const { ScopingGapDetector } = await import('../detectors/scoping-gap-detector.js');
+        const gapDetector = new ScopingGapDetector(codeIndex);
+        const gaps = gapDetector.detectGaps();
+        for (const gap of gaps) {
+          findings.push(
+            createFinding(this.id)
+              .title('Vertical Scoping Gap / Broken Access Control')
+              .description(
+                `${gap.evidence.reasoning} in ${gap.evidence.file}:${gap.evidence.line}. ` +
+                'Endpoints that do not enforce the same vertical scoping checks as sibling routes ' +
+                'can be exploited to exfiltrate or modify records belonging to other departments.'
+              )
+              .severity(gap.severity)
+              .cvssScore(8.1)
+              .category('A01_BROKEN_ACCESS_CONTROL')
+              .confidence(gap.confidence)
+              .evidence({
+                file: gap.evidence.file,
+                line: gap.evidence.line,
+                endLine: gap.evidence.endLine,
+                snippet: gap.evidence.snippet,
+              })
+              .remediation({
+                summary: 'Apply consistent scoping middleware to all endpoints in the controller.',
+                steps: [
+                  'Add vertical scoping middleware (e.g. scopeInventoryQuery) to the endpoint',
+                  'Ensure all import/export/list/search routes have the same access policies',
+                  'Implement role-based vertical scoping on the database level'
+                ],
+                effort: 'low',
+                priority: 2,
+              })
+              .tags(['auth', 'scoping', 'access-control'])
+              .build()
+          );
+        }
+      } catch (e) {
+        // AST detector error
+      }
     }
 
     return findings;
@@ -489,52 +522,94 @@ app.get('/api/users/:id', auth, (req, res) => {
     // Guard: skip if no auth
     if (context.appContext && !context.appContext.hasAuth) return findings;
 
-    // Only emit if we find concrete evidence: session tokens stored insecurely
-    const sessionEvidence = this.findAnyCodeEvidence(context, [
-      {
-        // Session token in localStorage (XSS-vulnerable)
-        pattern: /localStorage\.setItem\s*\(\s*['"`](?:token|session|auth|jwt|access_token)['"`]/i,
-        description: 'Session token stored in localStorage (accessible via XSS)',
-      },
-      {
-        // Cookie without security flags
-        pattern: /(?:document\.cookie|setCookie)\s*[=(].*(?:token|session|auth).*[^;]\s*$/im,
-        description: 'Session cookie set without security flags (HttpOnly, Secure, SameSite)',
-      },
-    ]);
+    const codeIndex = (context as any).metadata?.codeIndex;
+    let hasLocalstorageFinding = false;
 
-    if (sessionEvidence) {
-      findings.push(
-        createFinding(this.id)
-          .title('Insecure Session Token Storage')
-          .description(
-            `Found ${sessionEvidence.description} in ${sessionEvidence.file}:${sessionEvidence.line}. ` +
-            'Storing session tokens in localStorage makes them accessible to XSS attacks. ' +
-            'Cookies without security flags can be stolen or manipulated.'
-          )
-          .severity('high')
-          .cvssScore(7.5)
-          .category('A07_AUTH_FAILURES')
-          .confidence(0.85)
-          .evidence({
-            file: sessionEvidence.file,
-            line: sessionEvidence.line,
-            snippet: sessionEvidence.snippet,
-          })
-          .remediation({
-            summary: 'Store session tokens securely using HttpOnly cookies.',
-            steps: [
-              'Use HttpOnly, Secure, SameSite cookies for session tokens',
-              'Never store tokens in localStorage',
-              'Implement session expiration and rotation',
-              'Use a secure session store on the server',
-            ],
-            effort: 'medium',
-            priority: 2,
-          })
-          .tags(['auth', 'session', 'session-management', 'xss'])
-          .build()
+    if (context.target.type === 'directory' && codeIndex) {
+      try {
+        const { SessionStorageDetector } = await import('../detectors/session-storage-detector.js');
+        const detector = new SessionStorageDetector(codeIndex);
+        for (const [filePath] of codeIndex.files) {
+          const result = detector.detectInFile(filePath);
+          if (result) {
+            hasLocalstorageFinding = true;
+            findings.push(
+              createFinding(this.id)
+                .title('Insecure Session Token Storage')
+                .description(
+                  `${result.evidence.reasoning} found in ${result.evidence.file}:${result.evidence.line}. ` +
+                  'Storing session tokens in localStorage makes them accessible to XSS attacks.'
+                )
+                .severity('high')
+                .cvssScore(7.5)
+                .category('A07_AUTH_FAILURES')
+                .confidence(0.9)
+                .evidence({
+                  file: result.evidence.file,
+                  line: result.evidence.line,
+                  snippet: result.evidence.snippet,
+                })
+                .remediation({
+                  summary: 'Store session tokens securely using HttpOnly cookies.',
+                  steps: [
+                    'Use HttpOnly, Secure, SameSite cookies for session tokens',
+                    'Never store tokens in localStorage',
+                    'Implement session expiration and rotation',
+                    'Use a secure session store on the server',
+                  ],
+                  effort: 'medium',
+                  priority: 2,
+                })
+                .tags(['auth', 'session', 'session-management', 'xss'])
+                .build()
+            );
+            break; // only report one instance
+          }
+        }
+      } catch (e) {
+        // skip AST error
+      }
+    }
+
+    // Only run regex fallback if we didn't find localStorage via AST
+    if (!hasLocalstorageFinding) {
+      const cookieEvidence = this.findCodeEvidence(
+        context,
+        /(?:document\.cookie|setCookie)\s*[=(].*(?:token|session|auth).*[^;]\s*$/im
       );
+
+      if (cookieEvidence) {
+        findings.push(
+          createFinding(this.id)
+            .title('Insecure Session Token Storage')
+            .description(
+              `Found Session cookie set without security flags (HttpOnly, Secure, SameSite) in ${cookieEvidence.file}:${cookieEvidence.line}. ` +
+              'Cookies without security flags can be stolen or manipulated.'
+            )
+            .severity('high')
+            .cvssScore(7.5)
+            .category('A07_AUTH_FAILURES')
+            .confidence(0.8)
+            .evidence({
+              file: cookieEvidence.file,
+              line: cookieEvidence.line,
+              snippet: cookieEvidence.snippet,
+            })
+            .remediation({
+              summary: 'Store session tokens securely using HttpOnly cookies.',
+              steps: [
+                'Use HttpOnly, Secure, SameSite cookies for session tokens',
+                'Never store tokens in localStorage',
+                'Implement session expiration and rotation',
+                'Use a secure session store on the server',
+              ],
+              effort: 'medium',
+              priority: 2,
+            })
+            .tags(['auth', 'session', 'session-management', 'xss'])
+            .build()
+        );
+      }
     }
 
     return findings;
@@ -548,7 +623,7 @@ app.get('/api/users/:id', auth, (req, res) => {
     // Guard: skip if no auth or no OAuth endpoints found
     if (context.appContext && !context.appContext.hasAuth) return findings;
     const hasOAuthEndpoints = context.reconData?.authMechanisms.some(a => a.type === 'oauth');
-    const hasOAuthCode = this.findCodeEvidence(context, /oauth|openid|passport.*oauth|nextauth.*provider/i);
+    const hasOAuthCode = this.findCodeEvidence(context, /passport\.(?:use|authenticate)|new\s+(?:OAuth|Google|GitHub)Strategy|next-auth|openid-client/i);
     if (!hasOAuthEndpoints && !hasOAuthCode) return findings;
 
     // Check for missing state parameter validation (CSRF in OAuth)
@@ -695,8 +770,8 @@ app.get('/api/users/:id', auth, (req, res) => {
         description: 'JWT accepts "none" algorithm (signature bypass)',
       },
       {
-        pattern: /(?:jwt\.verify|jose\.jwtVerify|jsonwebtoken\.verify)(?!.*(?:exp|expiresIn|clockTimestamp|maxAge))/i,
-        description: 'JWT verified without checking expiration claim',
+        pattern: /(?:jwt\.verify|jose\.jwtVerify|jsonwebtoken\.verify)\(.*ignoreExpiration\s*:\s*true/i,
+        description: 'JWT verified with ignored expiration check',
       },
       {
         pattern: /(?:jwt[_-]?secret|JWT_SECRET)\s*[:=]\s*['"`][^'"`]{8,}['"`]/i,

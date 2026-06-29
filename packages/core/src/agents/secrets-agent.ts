@@ -157,6 +157,7 @@ export class SecretsAgent extends AbstractAgent {
       }
 
       for (const entry of entries) {
+        if (entry.toLowerCase().includes('guardiant-report') || entry.endsWith('.md')) continue;
         const fullPath = join(dir, entry);
         try {
           const stats = statSync(fullPath);
