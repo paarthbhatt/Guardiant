@@ -265,6 +265,49 @@ describe('FixAgent', () => {
     }
   });
 
+  it('redirects controller IDOR findings to the corresponding route file using codeIndex', async () => {
+    mkdirSync(join(tempDir, 'controllers'), { recursive: true });
+    mkdirSync(join(tempDir, 'routes'), { recursive: true });
+    const controllerFile = join(tempDir, 'controllers', 'usersController.js');
+    const routeFile = join(tempDir, 'routes', 'users.js');
+    
+    writeFileSync(controllerFile, 'exports.getUser = (req, res) => { res.send(req.params.id); };\n');
+    writeFileSync(routeFile, 'router.get("/:id", ctrl.getUser);\n');
+    writeFileSync(join(tempDir, 'package.json'), JSON.stringify({
+      dependencies: { express: '^4.18.0' },
+    }));
+
+    const mockCodeIndex = {
+      files: new Map(),
+      routeHandlers: [
+        {
+          path: '/:id',
+          method: 'GET',
+          file: 'routes/users.js',
+          handlerName: 'getUser',
+          controllerFile: 'controllers/usersController.js',
+          middleware: ['requireAuth'],
+        }
+      ],
+      middlewareMap: new Map(),
+    };
+
+    const agent = new FixAgent();
+    const finding = makeFinding({
+      id: 'redir-1',
+      category: 'A01_BROKEN_ACCESS_CONTROL',
+      evidence: { file: 'controllers/usersController.js', line: 1 },
+    });
+
+    const ctx = makeContext([finding], { targetPath: tempDir, targetType: 'directory' });
+    (ctx.metadata as any).codeIndex = mockCodeIndex;
+
+    const result = await agent.execute(ctx);
+    const meta = result.metadata.custom as { patches: FixPatch[] };
+    expect(meta.patches.length).toBeGreaterThan(0);
+    expect(meta.patches[0]!.filePath.replace(/\\/g, '/')).toBe('routes/users.js');
+  });
+
   it('handles errors gracefully (corrupt source file)', async () => {
     // Build a context that will trigger a read error inside the agent
     const agent = new FixAgent();
@@ -273,6 +316,38 @@ describe('FixAgent', () => {
     );
     // Should not throw; should return a structured result
     expect(result.status).toBe('completed');
+  });
+
+  it('applies a surgical code fix in apply mode and validates syntax', async () => {
+    const knownFile = join(tempDir, 'app.js');
+    const original = 'const x = 1;\n// vulnerability here\nconsole.log(x);\n';
+    writeFileSync(knownFile, original);
+    writeFileSync(join(tempDir, 'package.json'), JSON.stringify({
+      dependencies: { express: '^4.18.0' },
+    }));
+
+    const agent = new FixAgent();
+    const finding = makeFinding({
+      id: 'surgical-1',
+      evidence: { file: 'app.js', line: 2 },
+      remediation: {
+        summary: 'Fix logging',
+        steps: [],
+        codeExample: 'console.log("secure");',
+        effort: 'low',
+        priority: 1,
+      }
+    });
+
+    const result = await agent.execute(
+      makeContext([finding], { targetPath: tempDir, targetType: 'directory', mode: 'apply' })
+    );
+
+    const meta = result.metadata.custom as { applied: string[]; patches: FixPatch[] };
+    expect(meta.applied).toContain('surgical-1');
+    const after = readFileSync(knownFile, 'utf-8');
+    expect(after).not.toContain('// vulnerability here');
+    expect(after).toContain('console.log("secure");');
   });
 
   it('isRepo flag reflects whether .git exists', async () => {
