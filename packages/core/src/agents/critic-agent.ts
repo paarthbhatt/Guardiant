@@ -1,42 +1,41 @@
-import { createHttpClient } from '../http/index.js';
+import { z } from 'zod';
 import type { Finding } from '@guardiant/shared';
 import { createLogger } from '@guardiant/shared';
+import { createLLMClient, type LLMClient } from '../llm/client.js';
 
 const logger = createLogger({ level: 'info' });
 
 export interface CriticAgentConfig {
-  apiKey?: string;
-  provider?: 'openai' | 'anthropic';
-  model?: string;
+  llmClient?: LLMClient;
 }
 
+const CriticVerdictSchema = z.object({
+  reasoning: z.string().describe('Detailed step-by-step AppSec reasoning explaining why this is a true positive or false positive.'),
+  verdict: z.enum(['TRUE_POSITIVE', 'FALSE_POSITIVE']).describe('The final verification verdict.'),
+});
+
 export class CriticAgent {
-  private httpClient = createHttpClient(30000); // 30s timeout for complex reflections
-  private apiKey: string;
-  private provider: 'openai' | 'anthropic';
-  private model: string;
+  private llmClient: LLMClient;
 
   constructor(config?: CriticAgentConfig) {
-    this.provider = config?.provider || (process.env.GUARDIANT_ANTHROPIC_API_KEY ? 'anthropic' : 'openai');
-    this.apiKey = config?.apiKey || process.env.GUARDIANT_OPENAI_API_KEY || process.env.GUARDIANT_ANTHROPIC_API_KEY || '';
+    this.llmClient = config?.llmClient ?? createLLMClient();
     
-    if (this.provider === 'openai') {
-      this.model = config?.model || 'gpt-4o';
-    } else {
-      this.model = config?.model || 'claude-3-5-sonnet-20240620';
+    // Filter out low-reasoning providers for Critic Agent (reflection phase)
+    // to guarantee high-reasoning decisions (Nvidia Llama 3.3, OpenRouter Nemotron 550B, Gemini 2.5 Flash)
+    if (this.llmClient && (this.llmClient as any).providers) {
+      (this.llmClient as any).providers = (this.llmClient as any).providers.filter(
+        (p: any) => p.name !== 'zenmux' && p.name !== 'openai'
+      );
     }
-  }
-
-  public isAvailable(): boolean {
-    return this.apiKey.length > 0;
   }
 
   /**
    * Reviews a list of findings and returns only those that are NOT deemed false positives.
    */
-  public async reviewFindings(findings: Finding[]): Promise<Finding[]> {
-    if (!this.isAvailable()) {
-      logger.warn('Critic Agent not available (no API key). Skipping reflection phase.');
+  public async reviewFindings(findings: Finding[], rootPath?: string): Promise<Finding[]> {
+    const hasLLM = await this.llmClient.hasProvider();
+    if (!hasLLM) {
+      logger.warn('Critic Agent not available (no LLM provider configured). Skipping reflection phase.');
       return findings;
     }
     
@@ -45,9 +44,9 @@ export class CriticAgent {
     logger.info(`Critic Agent reviewing ${findings.length} findings for false positives...`);
     const verifiedFindings: Finding[] = [];
 
-    // Process in batches or one by one to avoid huge context sizes
+    // Process findings one by one
     for (const finding of findings) {
-      const isVerified = await this.evaluateFinding(finding);
+      const isVerified = await this.evaluateFinding(finding, rootPath);
       if (isVerified) {
         verifiedFindings.push(finding);
       } else {
@@ -58,83 +57,100 @@ export class CriticAgent {
     return verifiedFindings;
   }
 
-  private async evaluateFinding(finding: Finding): Promise<boolean> {
+  private async evaluateFinding(finding: Finding, rootPath?: string): Promise<boolean> {
     const systemPrompt = `You are a strict AppSec auditor. Your job is to review automated security scanner findings and determine if they are TRUE POSITIVES or FALSE POSITIVES.
-You must analyze the finding description, severity, and any evidence provided.
-Reply with exactly "VERDICT: TRUE POSITIVE" or "VERDICT: FALSE POSITIVE". Do not output anything else.`;
+Analyze the finding, its category, its description, the evidence, and the surrounding source code context carefully.
+Consider:
+1. Does the evidence code actually exist in the file at the specified line? If not, it is a FALSE POSITIVE.
+2. Is the vulnerability already fully mitigated by a middleware, helper function, query filter, or framework safeguard in the code? If yes, it is a FALSE POSITIVE.
+3. If it is an IDOR finding: check if vertical/role checks are already performed elsewhere or if the endpoint is intentionally public/shared for all authenticated roles.
+4. If it is a package dependency issue (like bcrypt CVE): is it valid for the workspace?
+Provide your reasoning step-by-step, then write the final verdict.`;
+
+    // Read file content window (±15 lines around the claimed line)
+    let fileContext = '';
+    if (rootPath && finding.evidence && finding.evidence.file && finding.evidence.line) {
+      try {
+        const { join } = await import('path');
+        const { existsSync, readFileSync } = await import('fs');
+        const filePath = join(rootPath, finding.evidence.file as string);
+        if (existsSync(filePath)) {
+          const lines = readFileSync(filePath, 'utf-8').split('\n');
+          const claimedLine = (finding.evidence.line as number) - 1;
+          const start = Math.max(0, claimedLine - 15);
+          const end = Math.min(lines.length, claimedLine + 15);
+          fileContext = lines.slice(start, end).map((l, i) => `${start + i + 1}: ${l}`).join('\n');
+        }
+      } catch {
+        // skip
+      }
+    }
+
+    // Find routing context to provide full middleware and routing information
+    let routeContext = '';
+    if (rootPath && finding.evidence && finding.evidence.file) {
+      try {
+        const { join, basename } = await import('path');
+        const { existsSync, readdirSync, readFileSync } = await import('fs');
+        const routesDir = join(rootPath, 'backend/src/routes');
+        if (existsSync(routesDir)) {
+          const files = readdirSync(routesDir);
+          // Extract the method name (e.g. listByLead)
+          const controllerName = basename(finding.evidence.file as string, '.js');
+          const fileLines = fileContext.split('\n');
+          // Look for "exports.methodName = ..." on the claimed line range
+          let methodName = '';
+          for (const line of fileLines) {
+            const match = line.match(/exports\.(\w+)\s*=/);
+            if (match?.[1]) {
+              methodName = match[1];
+              break;
+            }
+          }
+          
+          if (methodName) {
+            for (const file of files) {
+              if (file.endsWith('.js') || file.endsWith('.ts')) {
+                const content = readFileSync(join(routesDir, file), 'utf-8');
+                if (content.includes(methodName) || content.includes(controllerName)) {
+                  routeContext = `\nAssociated Route File (${file}):\n\`\`\`javascript\n${content}\n\`\`\``;
+                  break;
+                }
+              }
+            }
+          }
+        }
+      } catch {
+        // skip
+      }
+    }
 
     const userPrompt = `Review this finding:
 Title: ${finding.title}
 Severity: ${finding.severity}
 Category: ${finding.category}
 Description: ${finding.description}
-Evidence: ${JSON.stringify(finding.evidence || {})}
+Claimed Evidence: ${JSON.stringify(finding.evidence || {})}
+${fileContext ? `\nActual source code around the claimed location:\n\`\`\`\n${fileContext}\n\`\`\`` : ''}
+${routeContext}
 
 Is this a real vulnerability or a false positive?`;
 
     try {
-      let responseText = '';
-      if (this.provider === 'openai') {
-        responseText = await this.callOpenAI(systemPrompt, userPrompt);
-      } else {
-        responseText = await this.callAnthropic(systemPrompt, userPrompt);
-      }
+      const { data } = await this.llmClient.completeStructured(
+        {
+          system: systemPrompt,
+          messages: [{ role: 'user', content: userPrompt }],
+        },
+        CriticVerdictSchema
+      );
 
-      return responseText.includes('TRUE POSITIVE');
+      logger.info(`Critic Agent reasoning for ${finding.title}: ${data.reasoning}`);
+      return data.verdict === 'TRUE_POSITIVE';
     } catch (error) {
       logger.warn(`Critic evaluation failed for ${finding.title}: ${error}`);
       // Default to true positive if we can't evaluate
       return true;
     }
-  }
-
-  private async callOpenAI(system: string, user: string): Promise<string> {
-    const response = await this.httpClient.post(
-      'https://api.openai.com/v1/chat/completions',
-      {
-        model: this.model,
-        messages: [
-          { role: 'system', content: system },
-          { role: 'user', content: user }
-        ],
-        temperature: 0.1,
-      },
-      {
-        'Authorization': `Bearer ${this.apiKey}`
-      }
-    );
-
-    if (response.status !== 200) {
-      throw new Error(`OpenAI API error: ${response.body}`);
-    }
-
-    const json = response.json as any;
-    return json?.choices?.[0]?.message?.content?.trim() || '';
-  }
-
-  private async callAnthropic(system: string, user: string): Promise<string> {
-    const response = await this.httpClient.post(
-      'https://api.anthropic.com/v1/messages',
-      {
-        model: this.model,
-        max_tokens: 100,
-        system: system,
-        messages: [
-          { role: 'user', content: user }
-        ],
-        temperature: 0.1,
-      },
-      {
-        'x-api-key': this.apiKey,
-        'anthropic-version': '2023-06-01'
-      }
-    );
-
-    if (response.status !== 200) {
-      throw new Error(`Anthropic API error: ${response.body}`);
-    }
-
-    const json = response.json as any;
-    return json?.content?.[0]?.text?.trim() || '';
   }
 }
