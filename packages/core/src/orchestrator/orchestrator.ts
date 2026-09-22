@@ -357,15 +357,52 @@ export class Orchestrator {
   }
 
   private extractJSON(content: string): string {
+    // 1. Fenced ```json ... ``` block (most common well-behaved case).
     const jsonMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/);
     if (jsonMatch?.[1]) {
       return jsonMatch[1].trim();
     }
-    const objectMatch = content.match(/\{[\s\S]*\}/);
-    if (objectMatch?.[0]) {
-      return objectMatch[0];
+    // 2. Reasoning models (DeepSeek/Qwen/GLM) often emit prose like
+    //    "I need to analyze... {json}" or a <think>...</think> block before
+    //    the payload. Strip known reasoning wrappers first.
+    let cleaned = content
+      .replace(/<think>[\s\S]*?<\/think>/gi, '')
+      .replace(/<reasoning>[\s\S]*?<\/reasoning>/gi, '');
+    // 3. Extract the widest brace-balanced object, scanning from the first '{'
+    //    to the last '}' so leading/trailing prose is ignored.
+    const first = cleaned.indexOf('{');
+    const last = cleaned.lastIndexOf('}');
+    if (first !== -1 && last !== -1 && last > first) {
+      return cleaned.slice(first, last + 1).trim();
     }
-    return content;
+    return cleaned.trim();
+  }
+
+  /**
+   * Parse LLM reasoning output into a findings array, tolerating prose-wrapped
+   * responses. Returns null if no valid findings object can be recovered.
+   */
+  private parseFindingsResponse(content: string): any | null {
+    const candidates = [
+      () => JSON.parse(this.extractJSON(content)),
+      // Fallback: the very first {...} object anywhere in the text.
+      () => {
+        const m = content.match(/\{[\s\S]*?"findings"[\s\S]*\}/);
+        if (m?.[0]) return JSON.parse(m[0]);
+        throw new Error('no findings object');
+      },
+    ];
+    for (const attempt of candidates) {
+      try {
+        const data = attempt();
+        if (data && Array.isArray(data.findings)) {
+          return data;
+        }
+      } catch {
+        // try next strategy
+      }
+    }
+    return null;
   }
 
   private async runLLMAgent(agent: any, context: AgentContext): Promise<Finding[]> {
@@ -422,8 +459,7 @@ export class Orchestrator {
         throw new Error('LLM returned an empty response');
       }
 
-      const extracted = this.extractJSON(response.content);
-      const data = JSON.parse(extracted);
+      const data = this.parseFindingsResponse(response.content);
       if (data && Array.isArray(data.findings)) {
         this.logger.info(`AI agent ${agent.id} discovered ${data.findings.length} findings via LLM`);
         return data.findings.map((f: any, idx: number) => ({
