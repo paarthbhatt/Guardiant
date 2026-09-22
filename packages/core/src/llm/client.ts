@@ -406,6 +406,7 @@ export class LLMClient {
           nvidia: 1500,      // 40 RPM -> 1.5s interval
           openrouter: 500,   // minimal delay
           zenmux: 500,
+          openai: 3000,      // OpenAI-compatible gateways (e.g. HCNSEC) throttle bursts -> 3s interval
         };
         const interval = minIntervals[provider.name] ?? 0;
         const lastTime = this.lastRequestTimes.get(provider.name) ?? 0;
