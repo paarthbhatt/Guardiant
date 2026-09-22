@@ -20,12 +20,16 @@ export class CriticAgent {
   constructor(config?: CriticAgentConfig) {
     this.llmClient = config?.llmClient ?? createLLMClient();
     
-    // Filter out low-reasoning providers for Critic Agent (reflection phase)
-    // to guarantee high-reasoning decisions (Nvidia Llama 3.3, OpenRouter Nemotron 550B, Gemini 2.5 Flash)
+    // Prefer high-reasoning providers for the Critic Agent (reflection phase),
+    // but never strip the client down to zero providers: if filtering would
+    // leave nothing, keep the full list so an OpenAI-compatible endpoint
+    // (e.g. a custom base_url gateway) can still drive reflection.
     if (this.llmClient && (this.llmClient as any).providers) {
-      (this.llmClient as any).providers = (this.llmClient as any).providers.filter(
+      const all = (this.llmClient as any).providers;
+      const preferred = all.filter(
         (p: any) => p.name !== 'zenmux' && p.name !== 'openai'
       );
+      (this.llmClient as any).providers = preferred.length > 0 ? preferred : all;
     }
   }
 
