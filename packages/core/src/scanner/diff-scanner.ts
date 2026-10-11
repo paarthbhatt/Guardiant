@@ -1,4 +1,4 @@
-import { execSync } from 'child_process';
+import { execFileSync } from 'child_process';
 import { resolve, isAbsolute } from 'path';
 import { existsSync } from 'fs';
 
@@ -19,7 +19,7 @@ export class DiffScanner {
   public isGitRepo(): boolean {
     try {
       if (!existsSync(this.targetDir)) return false;
-      execSync('git rev-parse --is-inside-work-tree', { 
+      execFileSync('git', ['rev-parse', '--is-inside-work-tree'], {
         cwd: this.targetDir, 
         stdio: 'ignore' 
       });
@@ -39,13 +39,17 @@ export class DiffScanner {
 
     try {
       // Get files changed in the working directory and staging area
-      const uncommitted = execSync('git diff --name-only HEAD', { 
+      const uncommitted = execFileSync('git', ['diff', '--name-only', 'HEAD'], {
         cwd: this.targetDir,
         encoding: 'utf-8' 
       }).split('\n').filter(Boolean);
 
       // Get files changed between HEAD and baseRef
-      const committed = execSync(`git diff --name-only ${baseRef} HEAD`, {
+      if (!/^[A-Za-z0-9][A-Za-z0-9._/@~^{}-]*$/.test(baseRef)) {
+        return [];
+      }
+
+      const committed = execFileSync('git', ['diff', '--name-only', baseRef, 'HEAD'], {
         cwd: this.targetDir,
         encoding: 'utf-8'
       }).split('\n').filter(Boolean);

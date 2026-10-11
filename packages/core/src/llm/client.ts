@@ -15,6 +15,31 @@ interface LLMProviderClient {
 }
 
 /**
+ * Process-wide LLM runtime status (BATCAVE-89 fix #2).
+ *
+ * The scan command reads this to report honestly instead of always printing
+ * "completed successfully": if AI was requested but no provider was configured,
+ * or if LLM calls failed / rate-limited, the scan is PARTIAL for LLM-dependent
+ * rules — never reported as a full success.
+ */
+export interface LlmRuntimeStatus {
+  /** GUARDIANT_ENABLE_AI === '1' AND an explicit provider was named. */
+  requested: boolean;
+  /** How many providers were actually initialised (0 = static only). */
+  providersInitialized: number;
+  /** Count of failed LLM completions (rate-limit, quota, auth, empty, ...). */
+  failures: number;
+  /** Most recent LLM error message, for the honest status line. */
+  lastError?: string;
+}
+
+export const llmRuntimeStatus: LlmRuntimeStatus = {
+  requested: false,
+  providersInitialized: 0,
+  failures: 0,
+};
+
+/**
  * Multi-provider LLM client with automatic fallback
  */
 export class LLMClient {
@@ -35,31 +60,47 @@ export class LLMClient {
   }
 
   private initializeProviders(): void {
-    const userConfigured: LLMProviderClient[] = [];
-    const fallbackConfigured: LLMProviderClient[] = [];
+    // DETERMINISM / HONESTY CONTRACT (BATCAVE-89 fix #2):
+    // The LLM layer is OFF unless explicitly enabled, and it never
+    // auto-consumes whatever provider key happens to be exported. AI runs only
+    // when GUARDIANT_ENABLE_AI === '1', and then only the single provider named
+    // by GUARDIANT_AI_PROVIDER is initialised. This prevents the scanner from
+    // silently picking up e.g. GEMINI_API_KEY and producing non-deterministic
+    // results across runs.
+    this.providers = [];
 
-    // Priority: Nvidia -> OpenRouter -> Gemini -> Zenmux -> Anthropic -> OpenAI
-    const providerConfigs: Array<{ name: LLMProvider; envKey: string; create: () => LLMProviderClient | null }> = [
-      { name: 'nvidia', envKey: 'NVIDIA_API_KEY', create: () => this.createNvidiaProvider() },
-      { name: 'openrouter', envKey: 'OPENROUTER_API_KEY', create: () => this.createOpenRouterProvider() },
-      { name: 'gemini', envKey: 'GEMINI_API_KEY', create: () => this.createGeminiProvider() },
-      { name: 'zenmux', envKey: 'ZENMUX_API_KEY', create: () => this.createZenmuxProvider() },
-      { name: 'anthropic', envKey: 'ANTHROPIC_API_KEY', create: () => this.createAnthropicProvider() },
-      { name: 'openai', envKey: 'OPENAI_API_KEY', create: () => this.createOpenAIProvider() },
-    ];
-
-    for (const { envKey, create } of providerConfigs) {
-      const provider = create();
-      if (provider) {
-        if (process.env[envKey]) {
-          userConfigured.push(provider);
-        } else {
-          fallbackConfigured.push(provider);
-        }
-      }
+    if (process.env.GUARDIANT_ENABLE_AI !== '1') {
+      llmRuntimeStatus.requested = false;
+      llmRuntimeStatus.providersInitialized = 0;
+      return; // deterministic static-only scan
     }
 
-    this.providers = [...userConfigured, ...fallbackConfigured];
+    const explicit = (process.env.GUARDIANT_AI_PROVIDER || '').trim().toLowerCase();
+    llmRuntimeStatus.requested = true;
+    if (!explicit) {
+      llmRuntimeStatus.providersInitialized = 0;
+      return; // enabled but no explicit provider -> no LLM (caller reports PARTIAL)
+    }
+
+    const factories: Record<string, () => LLMProviderClient | null> = {
+      nvidia: () => this.createNvidiaProvider(),
+      openrouter: () => this.createOpenRouterProvider(),
+      gemini: () => this.createGeminiProvider(),
+      zenmux: () => this.createZenmuxProvider(),
+      anthropic: () => this.createAnthropicProvider(),
+      openai: () => this.createOpenAIProvider(),
+    };
+
+    const make = factories[explicit];
+    if (!make) {
+      llmRuntimeStatus.providersInitialized = 0;
+      return;
+    }
+    const provider = make();
+    if (provider) {
+      this.providers = [provider];
+    }
+    llmRuntimeStatus.providersInitialized = this.providers.length;
   }
 
   /**
@@ -445,6 +486,8 @@ export class LLMClient {
       }
     }
 
+    llmRuntimeStatus.failures += 1;
+    llmRuntimeStatus.lastError = errors.map(e => e.message).join('; ');
     throw new Error(
       `All LLM providers failed: ${errors.map(e => e.message).join('; ')}`
     );

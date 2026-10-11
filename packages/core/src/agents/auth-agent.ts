@@ -3,7 +3,7 @@ import { createFinding } from './types.js';
 import type { AgentContext, AgentResult, Finding, DiscoveredEndpoint } from '@guardiant/shared';
 import { OWASP_CATEGORIES } from '@guardiant/shared';
 import { createHttpClient } from '../http/index.js';
-import { readFileSync, existsSync, statSync, readdirSync } from 'fs';
+import { readFileSync, existsSync, lstatSync, readdirSync } from 'fs';
 import { join, relative, extname } from 'path';
 
 /**
@@ -170,7 +170,7 @@ Test for:
         if (excludeDirs.has(entry)) continue;
         const fullPath = join(dir, entry);
         try {
-          const stats = statSync(fullPath);
+          const stats = lstatSync(fullPath);
           if (stats.isDirectory()) {
             walkDir(fullPath);
           } else if (stats.isFile() && textExtensions.has(extname(fullPath).toLowerCase())) {

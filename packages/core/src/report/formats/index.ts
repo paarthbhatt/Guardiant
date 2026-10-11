@@ -182,7 +182,7 @@ export function formatAsHtml(report: Report, _audience: ReportAudience): string 
 <head>
 	<meta charset="UTF-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1.0">
-	<title>Guardiant Security Report - ${report.target}</title>
+	<title>Guardiant Security Report - ${escapeHtml(report.target)}</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 	<style>
 		:root {
@@ -318,11 +318,11 @@ export function formatAsHtml(report: Report, _audience: ReportAudience): string 
         <div class="content">
             <div class="header-card">
                 <h1>Guardiant Security Report</h1>
-                <p style="color: var(--text-muted); font-size: 1.125rem;">Target: <strong>${report.target}</strong></p>
+                <p style="color: var(--text-muted); font-size: 1.125rem;">Target: <strong>${escapeHtml(report.target)}</strong></p>
                 <div class="meta">
                     <div class="meta-item">
                         <div class="meta-label">Scan ID</div>
-                        <div class="meta-value">${report.scanId.split('-').slice(0, 2).join('-')}</div>
+                        <div class="meta-value">${escapeHtml(report.scanId.split('-').slice(0, 2).join('-'))}</div>
                     </div>
                     <div class="meta-item">
                         <div class="meta-label">Timestamp</div>
@@ -387,19 +387,19 @@ export function formatAsHtml(report: Report, _audience: ReportAudience): string 
             ${report.chains.length > 0 ? `
             <h2 id="chains">Exploit Chains</h2>
             ${report.chains.map(chain => `
-                <div class="finding ${chain.compoundSeverity}">
+                <div class="finding ${escapeHtml(chain.compoundSeverity)}">
                     <div class="finding-summary" style="cursor: default;">
                         <div>
                             <div class="finding-title">
-                                <span class="severity-badge badge-${chain.compoundSeverity}">${chain.compoundSeverity}</span>
-                                ${chain.id}
+                                <span class="severity-badge badge-${escapeHtml(chain.compoundSeverity)}">${escapeHtml(chain.compoundSeverity)}</span>
+                                ${escapeHtml(chain.id)}
                             </div>
                             <div class="finding-meta">CVSS: ${chain.compoundCvssScore.toFixed(1)}</div>
                         </div>
                     </div>
                     <div style="padding: 0 1.5rem 1.5rem;">
                         <ul style="margin-left: 1.5rem; color: var(--text-muted);">
-                            ${chain.findings.map(f => `<li><strong>${f.title}</strong> (${f.severity})</li>`).join('')}
+                            ${chain.findings.map(f => `<li><strong>${escapeHtml(f.title)}</strong> (${escapeHtml(f.severity)})</li>`).join('')}
                         </ul>
                     </div>
                 </div>
@@ -422,23 +422,23 @@ export function formatAsHtml(report: Report, _audience: ReportAudience): string 
 
             <div id="findings-list">
                 ${report.findings.map(finding => `
-                    <div class="finding ${finding.severity}" data-severity="${finding.severity}">
+                    <div class="finding ${escapeHtml(finding.severity)}" data-severity="${escapeHtml(finding.severity)}">
                         <div class="finding-summary" onclick="toggleFinding(this)">
                             <div>
                                 <div class="finding-title">
-                                    <span class="severity-badge badge-${finding.severity}">${finding.severity}</span>
-                                    ${finding.title}
+                                    <span class="severity-badge badge-${escapeHtml(finding.severity)}">${escapeHtml(finding.severity)}</span>
+                                    ${escapeHtml(finding.title)}
                                 </div>
                                 <div class="finding-meta">
-                                    <span><strong>Category:</strong> ${finding.category}</span>
-                                    <span><strong>CVSS:</strong> ${finding.cvssScore}</span>
-                                    <span><strong>Confidence:</strong> ${(finding.confidence * 100).toFixed(0)}%</span>
+                                    <span><strong>Category:</strong> ${escapeHtml(finding.category)}</span>
+                                    <span><strong>CVSS:</strong> ${escapeHtml(String(finding.cvssScore))}</span>
+                                    <span><strong>Confidence:</strong> ${escapeHtml((finding.confidence * 100).toFixed(0))}%</span>
                                 </div>
                             </div>
                             <div style="color: var(--text-muted);">&#9660;</div>
                         </div>
                         <div class="finding-details">
-                            <p style="margin-bottom: 1.5rem; font-size: 1.05rem;">${finding.description}</p>
+                            <p style="margin-bottom: 1.5rem; font-size: 1.05rem;">${escapeHtml(finding.description)}</p>
                             
                             ${finding.evidence.payload ? `
                                 <h4>Exploit Payload</h4>
@@ -447,15 +447,15 @@ export function formatAsHtml(report: Report, _audience: ReportAudience): string 
                             
                             ${finding.evidence.file ? `
                                 <p style="color: var(--text-muted); font-size: 0.875rem;">
-                                    Found in: <code>${finding.evidence.file}</code>${finding.evidence.line ? `:${finding.evidence.line}` : ''}
+                                    Found in: <code>${escapeHtml(finding.evidence.file)}</code>${finding.evidence.line ? `:${escapeHtml(String(finding.evidence.line))}` : ''}
                                 </p>
                             ` : ''}
                             
                             <div class="remediation">
                                 <h4>Remediation</h4>
-                                <p>${finding.remediation.summary}</p>
+                                <p>${escapeHtml(finding.remediation.summary)}</p>
                                 <ul>
-                                    ${finding.remediation.steps.map(s => `<li>${s}</li>`).join('')}
+                                    ${finding.remediation.steps.map(s => `<li>${escapeHtml(s)}</li>`).join('')}
                                 </ul>
                             </div>
                         </div>

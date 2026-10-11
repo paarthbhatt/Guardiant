@@ -3,7 +3,7 @@ import { createFinding } from './types.js';
 import type { AgentContext, AgentResult, Finding } from '@guardiant/shared';
 import { OWASP_CATEGORIES, createLogger } from '@guardiant/shared';
 import { createHttpClient } from '../http/index.js';
-import { readFileSync, existsSync, statSync, readdirSync } from 'fs';
+import { readFileSync, existsSync, lstatSync, readdirSync } from 'fs';
 import { join, relative, extname } from 'path';
 
 /**
@@ -160,7 +160,7 @@ export class SecretsAgent extends AbstractAgent {
         if (entry.toLowerCase().includes('guardiant-report') || entry.endsWith('.md')) continue;
         const fullPath = join(dir, entry);
         try {
-          const stats = statSync(fullPath);
+          const stats = lstatSync(fullPath);
           if (stats.isDirectory()) {
             if (!excludeDirs.has(entry)) {
               walkDir(fullPath);

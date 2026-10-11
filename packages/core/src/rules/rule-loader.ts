@@ -102,7 +102,7 @@ export class RuleLoader {
     for (const file of files) {
       try {
         const content = readFileSync(join(yamlDir, file), 'utf-8');
-        const raw = yaml.load(content) as Record<string, unknown>;
+        const raw = yaml.load(content, { schema: yaml.JSON_SCHEMA }) as Record<string, unknown>;
         const parsed = VCVFRuleSchema.safeParse(raw);
 
         if (!parsed.success) {
@@ -166,7 +166,7 @@ export class RuleLoader {
     for (const file of files) {
       try {
         const content = readFileSync(join(yamlDir, file), 'utf-8');
-        const raw = yaml.load(content) as Record<string, unknown>;
+        const raw = yaml.load(content, { schema: yaml.JSON_SCHEMA }) as Record<string, unknown>;
         const parsed = SecretRuleSchema.safeParse(raw);
 
         if (!parsed.success) {

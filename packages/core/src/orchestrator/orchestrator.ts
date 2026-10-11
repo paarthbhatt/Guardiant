@@ -459,6 +459,8 @@ export class Orchestrator {
         throw new Error('LLM returned an empty response');
       }
 
+      // # AUDIT-FIX [G-01]: Validate model output with a bounded runtime schema
+      // before it becomes findings, file paths, proposed code, or replay input.
       const data = this.parseFindingsResponse(response.content);
       if (data && Array.isArray(data.findings)) {
         this.logger.info(`AI agent ${agent.id} discovered ${data.findings.length} findings via LLM`);

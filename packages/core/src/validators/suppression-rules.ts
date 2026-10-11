@@ -1,6 +1,5 @@
 import type { Finding, AppContext } from '@guardiant/shared';
-import { existsSync } from 'fs';
-import { join } from 'path';
+import { resolveExistingPathWithinRoot } from '../security/path-safety.js';
 
 /**
  * A suppression rule that filters out known false positive patterns.
@@ -117,8 +116,8 @@ const fileDoesNotExist: SuppressionRule = {
       return false;
     }
 
-    const fullPath = join(rootPath, finding.evidence.file);
-    return !existsSync(fullPath);
+    // Treat an absolute path or traversal outside the target as invalid too.
+    return resolveExistingPathWithinRoot(rootPath, finding.evidence.file) === null;
   },
 };
 

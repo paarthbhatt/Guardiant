@@ -1,6 +1,6 @@
 import type { AppContext, AppType, ReconData } from '@guardiant/shared';
 import { createLogger } from '@guardiant/shared';
-import { readFileSync, existsSync, statSync, readdirSync } from 'fs';
+import { readFileSync, existsSync, statSync, lstatSync, readdirSync } from 'fs';
 import { join, extname } from 'path';
 
 const logger = createLogger({ level: 'info' });
@@ -208,7 +208,7 @@ export class AppClassifier {
         if (['node_modules', '.git', 'dist', 'build', '.next', '.cache'].includes(entry)) continue;
         const fullPath = join(dir, entry);
         try {
-          const stats = statSync(fullPath);
+          const stats = lstatSync(fullPath);
           if (stats.isDirectory()) {
             scanDir(fullPath, depth + 1);
           } else if (stats.isFile()) {

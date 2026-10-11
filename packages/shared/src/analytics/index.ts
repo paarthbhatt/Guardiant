@@ -69,6 +69,9 @@ export class Analytics {
     const ph = getPostHog();
     if (!ph) return;
 
+    // # AUDIT-FIX [G-05]: Analytics is opt-in, but hostname/path and raw error
+    // text can still disclose private targets. Apply an explicit telemetry
+    // allow-list/redaction policy before sending scan metadata externally.
     ph.capture({
       distinctId: options.userId || this.getAnonymousId(),
       event: 'scan_started',

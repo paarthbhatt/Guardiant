@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { Finding } from '@guardiant/shared';
 import { createLogger } from '@guardiant/shared';
 import { createLLMClient, type LLMClient } from '../llm/client.js';
+import { resolveExistingPathWithinRoot } from '../security/path-safety.js';
 
 const logger = createLogger({ level: 'info' });
 
@@ -50,6 +51,9 @@ export class CriticAgent {
 
     // Process findings one by one
     for (const finding of findings) {
+      // # AUDIT-FIX [G-01]: Repository comments and finding text can steer the
+      // verdict. A model verdict must not erase deterministic scanner evidence;
+      // retain it and record an advisory review with deterministic provenance.
       const isVerified = await this.evaluateFinding(finding, rootPath);
       if (isVerified) {
         verifiedFindings.push(finding);
@@ -75,10 +79,9 @@ Provide your reasoning step-by-step, then write the final verdict.`;
     let fileContext = '';
     if (rootPath && finding.evidence && finding.evidence.file && finding.evidence.line) {
       try {
-        const { join } = await import('path');
-        const { existsSync, readFileSync } = await import('fs');
-        const filePath = join(rootPath, finding.evidence.file as string);
-        if (existsSync(filePath)) {
+        const { readFileSync } = await import('fs');
+        const filePath = resolveExistingPathWithinRoot(rootPath, finding.evidence.file as string);
+        if (filePath) {
           const lines = readFileSync(filePath, 'utf-8').split('\n');
           const claimedLine = (finding.evidence.line as number) - 1;
           const start = Math.max(0, claimedLine - 15);
@@ -96,8 +99,8 @@ Provide your reasoning step-by-step, then write the final verdict.`;
       try {
         const { join, basename } = await import('path');
         const { existsSync, readdirSync, readFileSync } = await import('fs');
-        const routesDir = join(rootPath, 'backend/src/routes');
-        if (existsSync(routesDir)) {
+        const routesDir = resolveExistingPathWithinRoot(rootPath, 'backend/src/routes');
+        if (routesDir && existsSync(routesDir)) {
           const files = readdirSync(routesDir);
           // Extract the method name (e.g. listByLead)
           const controllerName = basename(finding.evidence.file as string, '.js');
@@ -115,7 +118,9 @@ Provide your reasoning step-by-step, then write the final verdict.`;
           if (methodName) {
             for (const file of files) {
               if (file.endsWith('.js') || file.endsWith('.ts')) {
-                const content = readFileSync(join(routesDir, file), 'utf-8');
+                const routePath = resolveExistingPathWithinRoot(rootPath, join(routesDir, file));
+                if (!routePath) continue;
+                const content = readFileSync(routePath, 'utf-8');
                 if (content.includes(methodName) || content.includes(controllerName)) {
                   routeContext = `\nAssociated Route File (${file}):\n\`\`\`javascript\n${content}\n\`\`\``;
                   break;

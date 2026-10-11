@@ -3,7 +3,7 @@ import { createFinding } from './types.js';
 import type { AgentContext, AgentResult, Finding } from '@guardiant/shared';
 import { OWASP_CATEGORIES, createLogger } from '@guardiant/shared';
 import { createHttpClient } from '../http/index.js';
-import { readFileSync, statSync, readdirSync } from 'fs';
+import { readFileSync, lstatSync, readdirSync } from 'fs';
 import { join, relative, extname } from 'path';
 
 /**
@@ -585,7 +585,7 @@ CREATE POLICY "Deny anon access" ON sensitive_table
           if (excludeDirs.has(entry)) continue;
           const fullPath = join(dir, entry);
           try {
-            const stats = statSync(fullPath);
+            const stats = lstatSync(fullPath);
             if (stats.isDirectory()) {
               walkDir(fullPath);
             } else if (stats.isFile()) {
@@ -1327,7 +1327,7 @@ match /${publicCollections[0]}/{docId} {
       for (const entry of entries) {
         const fullPath = join(dir, entry);
         try {
-          const stats = statSync(fullPath);
+          const stats = lstatSync(fullPath);
           if (stats.isDirectory()) {
             if (!excludeDirs.has(entry)) walkDir(fullPath);
           } else if (stats.isFile()) {

@@ -16,7 +16,7 @@ vi.mock('fs', () => {
       if (norm === 'root/controllers') return ['sharesController.js', 'inventoryController.js'];
       return [];
     }),
-    statSync: vi.fn((filePath: string) => {
+    lstatSync: vi.fn((filePath: string) => {
       const norm = filePath.replace(/\\/g, '/');
       const isDir = norm === 'root' || norm === 'root/routes' || norm === 'root/controllers';
       return {

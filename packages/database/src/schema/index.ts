@@ -4,6 +4,8 @@ import { relations } from 'drizzle-orm';
 /**
  * Scans table - tracks security scans
  */
+// # AUDIT-FIX [G-03]: Add tenant/user ownership and enforce it in every
+// operation before exposing this persistence layer through a shared service.
 export const scans = sqliteTable('scans', {
   id: text('id').primaryKey(),
   target: text('target').notNull(),

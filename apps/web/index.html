@@ -339,15 +339,31 @@
 				return;
 			}
 
-			container.innerHTML = findings.map(f => `
-				<div class="finding-item ${f.severity}">
-					<div class="finding-title">
-						${f.title}
-						<span class="severity-badge ${f.severity}">${f.severity.toUpperCase()}</span>
-					</div>
-					<div class="finding-meta">${f.category} • CVSS ${f.cvssScore} • ${f.discoveredBy}</div>
-				</div>
-			`).join('');
+			// Findings come from the scan response and may contain attacker-controlled
+			// source text. Build the nodes with textContent instead of interpolating
+			// values into innerHTML.
+			container.replaceChildren();
+			findings.forEach(f => {
+				const severity = ['critical', 'high', 'medium', 'low'].includes(f.severity) ? f.severity : 'low';
+				const item = document.createElement('div');
+				item.className = `finding-item ${severity}`;
+
+				const title = document.createElement('div');
+				title.className = 'finding-title';
+				title.append(document.createTextNode(String(f.title ?? 'Untitled finding')));
+
+				const badge = document.createElement('span');
+				badge.className = `severity-badge ${severity}`;
+				badge.textContent = severity.toUpperCase();
+				title.appendChild(badge);
+
+				const meta = document.createElement('div');
+				meta.className = 'finding-meta';
+				meta.textContent = `${String(f.category ?? 'unknown')} • CVSS ${String(f.cvssScore ?? 'n/a')} • ${String(f.discoveredBy ?? 'unknown')}`;
+
+				item.append(title, meta);
+				container.appendChild(item);
+			});
 		}
 
 		document.getElementById('startScanBtn').addEventListener('click', async () => {

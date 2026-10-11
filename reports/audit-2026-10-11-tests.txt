@@ -1,0 +1,138 @@
+Scope: all 8 workspace projects
+Lockfile is up to date, resolution step is skipped
+Already up to date
+
+Done in 1.4s
+
+> guardiant@0.2.0 typecheck /home/batman/company/intel/epimetheus-red/engines/Guardiant
+> turbo typecheck
+
+• turbo 2.8.17
+• Packages in scope: @guardiant/cli, @guardiant/core, @guardiant/database, @guardiant/queue, @guardiant/shared, @guardiant/web, guardiant-vscode
+• Running typecheck in 7 packages
+• Remote caching disabled
+@guardiant/shared:build: cache miss, executing 087e5d9a85f4a095
+@guardiant/shared:typecheck: cache miss, executing 4d9302b56ace75f6
+@guardiant/shared:build: ERROR: command finished with error: Exec format error (os error 8)
+@guardiant/shared:typecheck: ERROR: command finished with error: Exec format error (os error 8)
+@guardiant/shared#build: unable to spawn child process: Exec format error (os error 8)
+@guardiant/shared#typecheck: unable to spawn child process: Exec format error (os error 8)
+
+ Tasks:    0 successful, 2 total
+Cached:    0 cached, 2 total
+  Time:    59ms 
+Failed:    @guardiant/shared#build, @guardiant/shared#typecheck
+
+ ERROR  run failed: command  exited (1)
+ ELIFECYCLE  Command failed with exit code 1.
+Scope: 7 of 8 workspace projects
+packages/shared typecheck$ tsc --noEmit
+packages/shared typecheck: Done
+packages/database typecheck$ tsc --noEmit
+packages/queue typecheck$ tsc --noEmit
+packages/database typecheck: Done
+packages/queue typecheck: Done
+packages/core typecheck$ tsc --noEmit
+packages/core typecheck: Done
+apps/cli typecheck$ tsc --noEmit
+apps/cli typecheck: Done
+Scope: 7 of 8 workspace projects
+apps/web build$ echo 'Static site - no build needed'
+packages/shared build$ tsc
+apps/web build: Static site - no build needed
+apps/web build: Done
+packages/shared build: Done
+packages/database build$ tsc
+packages/queue build$ tsc
+packages/database build: Done
+packages/queue build: Done
+packages/core build$ tsc
+packages/core build: Done
+apps/cli build$ tsc
+apps/cli build: Done
+
+> @guardiant/core@0.2.0 test /home/batman/company/intel/epimetheus-red/engines/Guardiant/packages/core
+> vitest run
+
+
+ RUN  v2.1.9 /home/batman/company/intel/epimetheus-red/engines/Guardiant/packages/core
+
+ ✓ src/__tests__/taint-tracker.test.ts (5 tests) 62ms
+ ✓ src/__tests__/detector-and-indexer.test.ts (8 tests) 155ms
+ ✓ src/__tests__/report.test.ts (8 tests) 94ms
+ ✓ src/__tests__/exploit-agent.test.ts (12 tests) 54ms
+ ✓ src/__tests__/orchestrator.test.ts (10 tests) 103ms
+ ✓ src/__tests__/fix-agent.test.ts (14 tests) 154ms
+ ✓ src/__tests__/integration/pipeline.test.ts (17 tests) 195ms
+stdout | src/__tests__/security-audit.test.ts > security audit regressions > does not send traversed file contents to the critic provider
+2026-10-11 04:20:05 [[32minfo[39m]: Critic Agent reviewing 1 findings for false positives...
+2026-10-11 04:20:05 [[32minfo[39m]: Critic Agent reasoning for Audit test finding: fixture
+
+ ✓ src/__tests__/security-audit.test.ts (10 tests) 250ms
+
+ Test Files  8 passed (8)
+      Tests  84 passed (84)
+   Start at  04:20:03
+   Duration  2.53s (transform 1.76s, setup 0ms, collect 6.62s, tests 1.07s, environment 11ms, prepare 3.08s)
+
+
+> @guardiant/shared@0.2.0 test /home/batman/company/intel/epimetheus-red/engines/Guardiant/packages/shared
+> vitest run
+
+
+ RUN  v2.1.9 /home/batman/company/intel/epimetheus-red/engines/Guardiant/packages/shared
+
+ ✓ src/__tests__/format.test.ts (22 tests) 45ms
+stderr | src/__tests__/logger.test.ts > createLogger > should not throw when logging
+[winston] Attempt to write logs with no transports, which can increase memory usage: {"message":"test error","level":"error"}
+
+ ✓ src/__tests__/logger.test.ts (6 tests) 14ms
+ ✓ src/__tests__/crypto.test.ts (29 tests) 324ms
+
+ Test Files  3 passed (3)
+      Tests  57 passed (57)
+   Start at  04:20:07
+   Duration  1.47s (transform 415ms, setup 0ms, collect 564ms, tests 383ms, environment 2ms, prepare 1.02s)
+
+
+> @guardiant/queue@0.2.0 test /home/batman/company/intel/epimetheus-red/engines/Guardiant/packages/queue
+> vitest run
+
+
+ RUN  v2.1.9 /home/batman/company/intel/epimetheus-red/engines/Guardiant/packages/queue
+
+ ✓ src/__tests__/memory-queue.test.ts (11 tests) 1118ms
+   ✓ MemoryQueue > process (job execution) > should process a job and mark it completed 302ms
+   ✓ MemoryQueue > process (job execution) > should call completed event handler 302ms
+   ✓ MemoryQueue > process (job execution) > should call failed event handler when processor throws 502ms
+
+ Test Files  1 passed (1)
+      Tests  11 passed (11)
+   Start at  04:20:09
+   Duration  2.19s (transform 190ms, setup 0ms, collect 107ms, tests 1.12s, environment 0ms, prepare 301ms)
+
+
+> @guardiant/cli@0.2.0 test /home/batman/company/intel/epimetheus-red/engines/Guardiant/apps/cli
+> vitest run "--exclude" "src/__tests__/e2e/**"
+
+
+ RUN  v2.1.9 /home/batman/company/intel/epimetheus-red/engines/Guardiant/apps/cli
+
+include: **/*.{test,spec}.?(c|m)[jt]s?(x)
+exclude:  **/node_modules/**, **/dist/**, **/cypress/**, **/.{idea,git,cache,output,temp}/**, **/{karma,rollup,webpack,vite,vitest,jest,ava,babel,nyc,cypress,tsup,build,eslint,prettier}.config.*, src/__tests__/e2e/**
+
+No test files found, exiting with code 1
+/home/batman/company/intel/epimetheus-red/engines/Guardiant/apps/cli:
+ ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL  @guardiant/cli@0.2.0 test: `vitest run "--exclude" "src/__tests__/e2e/**"`
+Exit status 1
+
+> @guardiant/cli@0.2.0 test /home/batman/company/intel/epimetheus-red/engines/Guardiant/apps/cli
+> vitest run "--exclude" "src/__tests__/e2e/**" "--passWithNoTests"
+
+
+ RUN  v2.1.9 /home/batman/company/intel/epimetheus-red/engines/Guardiant/apps/cli
+
+include: **/*.{test,spec}.?(c|m)[jt]s?(x)
+exclude:  **/node_modules/**, **/dist/**, **/cypress/**, **/.{idea,git,cache,output,temp}/**, **/{karma,rollup,webpack,vite,vitest,jest,ava,babel,nyc,cypress,tsup,build,eslint,prettier}.config.*, src/__tests__/e2e/**
+No test files found, exiting with code 0
+

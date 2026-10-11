@@ -66,6 +66,9 @@ function sleep(ms: number): Promise<void> {
  * Create HTTP client for security testing
  */
 export function createHttpClient(defaultTimeout = 30000): HttpClient {
+  // # AUDIT-FIX [G-02]: Add an explicit scan-scope/egress policy enforced for
+  // every discovered URL and redirect, including DNS/IP validation. CLI target
+  // selection alone cannot authorize URLs supplied by a hostile scanned page.
   async function request(options: HttpRequestOptions): Promise<HttpResponse> {
     const maxRetries = options.retries ?? 2;
     const baseRetryDelay = options.retryDelay ?? 1000;
@@ -90,8 +93,6 @@ export function createHttpClient(defaultTimeout = 30000): HttpClient {
           redirect: options.followRedirects !== false ? 'follow' : 'manual',
           signal: controller.signal,
         });
-
-        clearTimeout(timeoutId);
 
         const responseHeaders: Record<string, string> = {};
         response.headers.forEach((value, key) => {
@@ -132,6 +133,10 @@ export function createHttpClient(defaultTimeout = 30000): HttpClient {
         // Exponential backoff: 1s, 2s, 4s...
         const delay = baseRetryDelay * Math.pow(2, attempt);
         await sleep(delay);
+      } finally {
+        // Keep the deadline active while response.text() consumes the body.
+        // A target can send headers immediately and then never finish its body.
+        clearTimeout(timeoutId);
       }
     }
 

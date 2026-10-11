@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { ReportGenerator } from '../report/generator.js';
+import { formatAsHtml } from '../report/formats/index.js';
 
 describe('ReportGenerator', () => {
 	const createMockData = () => ({
@@ -270,6 +271,39 @@ describe('ReportGenerator', () => {
 			expect(output).toContain('<!DOCTYPE html>');
 			expect(output).toContain('Guardiant Security Report');
 			expect(output).toContain('SQL Injection');
+		});
+
+		it('escapes attacker-controlled report fields in HTML', () => {
+			const generator = new ReportGenerator({
+				audience: 'developer',
+				format: 'html',
+				includePocs: false,
+				includeCodeSnippets: false,
+			});
+			const data = createMockData();
+			data.target = 'https://example.test/"><script>alert(1)</script>';
+			data.findings[0]!.title = '<img src=x onerror=alert(2)>';
+			data.findings[0]!.description = '<script>alert(3)</script>';
+			data.findings[0]!.remediation.summary = '<img src=x onerror=alert(4)>';
+			data.findings[0]!.remediation.steps = ['<script>alert(5)</script>'];
+			data.chains[0]!.id = '<script>alert(6)</script>';
+
+			const report = generator.generate(data);
+			report.chains[0]!.findings = [report.findings[0]!];
+			report.findings[0]!.evidence.file = '<img src=x onerror=alert(7)>';
+			report.findings[0]!.severity = 'high" onclick="alert(8)' as never;
+			const output = formatAsHtml(report, 'developer');
+
+			expect(output).not.toContain('<script>alert(1)</script>');
+			expect(output).not.toContain('<img src=x onerror=alert(2)>');
+			expect(output).not.toContain('<script>alert(3)</script>');
+			expect(output).not.toContain('<img src=x onerror=alert(4)>');
+			expect(output).not.toContain('<script>alert(5)</script>');
+			expect(output).not.toContain('<script>alert(6)</script>');
+			expect(output).not.toContain('<img src=x onerror=alert(7)>');
+			expect(output).not.toContain('data-severity="high" onclick="alert(8)');
+			expect(output).toContain('&lt;script&gt;alert(3)&lt;/script&gt;');
+			expect(output).toContain('high&quot; onclick=&quot;alert(8)');
 		});
 	});
 });
