@@ -28,7 +28,10 @@ export class PayloadGenerator {
   }
 
   public isAvailable(): boolean {
-    return this.apiKey.length > 0;
+    // Keep dynamic payload generation behind the same explicit opt-in as the
+    // central LLM client. Findings can contain source code and live responses;
+    // never send that context to a provider merely because a key is exported.
+    return process.env.GUARDIANT_ENABLE_AI === '1' && this.apiKey.length > 0;
   }
 
   /**

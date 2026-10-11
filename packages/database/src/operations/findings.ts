@@ -1,8 +1,22 @@
 import { eq, and, desc, asc, sql } from 'drizzle-orm';
 import type { Database } from '../connection.js';
-import { findings, type Finding, type NewFinding } from '../schema/index.js';
+import { findings, scans, type Finding, type NewFinding } from '../schema/index.js';
 import { generateFindingId } from '@guardiant/shared';
 import type { Severity } from '@guardiant/shared';
+import { type AuthScope, LOCAL_SCOPE, scanScopePredicate } from './auth-scope.js';
+
+/**
+ * # AUDIT-FIX [G-03] resolved: findings inherit tenancy through their scan.
+ * This guard confirms the scan is visible in the caller's scope before any
+ * finding row is read or written, so a foreign scan ID yields nothing.
+ */
+async function scanInScope(db: Database, scanId: string, scope: AuthScope): Promise<boolean> {
+  const [row] = await db
+    .select({ id: scans.id })
+    .from(scans)
+    .where(scanScopePredicate(scope, eq(scans.id, scanId)));
+  return !!row;
+}
 
 /**
  * Create a new finding
@@ -86,8 +100,12 @@ export async function getFindingsByScan(
     offset?: number;
     orderBy?: 'severity' | 'timestamp' | 'cvssScore';
     order?: 'asc' | 'desc';
-  } = {}
+  } = {},
+  scope: AuthScope = LOCAL_SCOPE
 ): Promise<Finding[]> {
+  // # AUDIT-FIX [G-03] resolved: refuse to read findings for a scan outside scope.
+  if (!(await scanInScope(db, scanId, scope))) return [];
+
   const {
     severity,
     category,
@@ -129,8 +147,11 @@ export async function getFindingsByScan(
 export async function countFindingsByScan(
   db: Database,
   scanId: string,
-  options: { severity?: Severity; category?: string } = {}
+  options: { severity?: Severity; category?: string } = {},
+  scope: AuthScope = LOCAL_SCOPE
 ): Promise<number> {
+  if (!(await scanInScope(db, scanId, scope))) return 0;
+
   const { severity, category } = options;
 
   const conditions = [eq(findings.scanId, scanId)];

@@ -1,11 +1,13 @@
 import { AbstractAgent } from './base.js';
 import type { AgentContext, AgentResult, Finding, FixPatch, OWASPCategory } from '@guardiant/shared';
 import { OWASP_CATEGORIES } from '@guardiant/shared';
-import { readFileSync, existsSync, statSync, readdirSync, writeFileSync, unlinkSync } from 'fs';
-import { join, relative } from 'path';
-import { execSync } from 'child_process';
+import { readFileSync, existsSync, statSync, readdirSync, writeFileSync, mkdtempSync, rmSync } from 'fs';
+import { join, relative, resolve } from 'path';
+import { tmpdir } from 'os';
+import { execFileSync } from 'child_process';
 import { createLLMClient } from '../llm/client.js';
 import type { CodeIndex } from '../indexer/code-index.js';
+import { resolveExistingPathWithinRoot } from '../security/path-safety.js';
 
 interface FixAgentMetadata {
   findings: Finding[];
@@ -243,8 +245,8 @@ Please correct the patch so it doesn't break syntax and retains exactly the corr
    * Detect the primary framework from package.json
    */
   private detectFramework(targetPath: string): string {
-    const pkgPath = join(targetPath, 'package.json');
-    if (!existsSync(pkgPath)) return 'unknown';
+    const pkgPath = resolveExistingPathWithinRoot(targetPath, 'package.json');
+    if (!pkgPath) return 'unknown';
     try {
       const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8')) as { dependencies?: Record<string, string>; devDependencies?: Record<string, string> };
       const deps = { ...pkg.dependencies, ...pkg.devDependencies };
@@ -282,6 +284,7 @@ Please correct the patch so it doesn't break syntax and retains exactly the corr
       '__pycache__', '.venv', 'venv', '.tox',
     ]);
     const files: string[] = [];
+    const visited = new Set<string>();
 
     const walk = (dir: string): void => {
       let entries: string[];
@@ -291,7 +294,9 @@ Please correct the patch so it doesn't break syntax and retains exactly the corr
         return;
       }
       for (const entry of entries) {
-        const full = join(dir, entry);
+        const full = resolveExistingPathWithinRoot(rootPath, resolve(dir, entry));
+        if (!full || visited.has(full)) continue;
+        visited.add(full);
         let stats;
         try {
           stats = statSync(full);
@@ -326,15 +331,16 @@ Please correct the patch so it doesn't break syntax and retains exactly the corr
     // 1. Try direct path from evidence
     const evidenceFile = finding.evidence?.file;
     if (evidenceFile) {
-      const candidate = join(rootPath, evidenceFile);
-      if (existsSync(candidate)) {
-        return {
-          absolutePath: candidate,
-          relativePath: relative(rootPath, candidate),
-          framework,
-          score: 1.0,
-        };
-      }
+      const candidate = resolveExistingPathWithinRoot(rootPath, evidenceFile);
+      // Invalid explicit evidence must not fall back to an unrelated source
+      // file: a malicious finding could otherwise redirect a proposed fix.
+      if (!candidate || !statSync(candidate).isFile()) return null;
+      return {
+        absolutePath: candidate,
+        relativePath: relative(resolve(rootPath), candidate),
+        framework,
+        score: 1.0,
+      };
     }
 
     // 2. Extract a path from evidence.request (e.g. /api/users -> route file)
@@ -343,11 +349,11 @@ Please correct the patch so it doesn't break syntax and retains exactly the corr
     if (urlPath) {
       const candidates = this.urlPathToFileCandidates(urlPath, framework);
       for (const candidate of candidates) {
-        const full = join(rootPath, candidate);
-        if (existsSync(full)) {
+        const full = resolveExistingPathWithinRoot(rootPath, candidate);
+        if (full) {
           return {
             absolutePath: full,
-            relativePath: relative(rootPath, full),
+            relativePath: relative(resolve(rootPath), full),
             framework,
             score: 0.9,
           };
@@ -365,7 +371,7 @@ Please correct the patch so it doesn't break syntax and retains exactly the corr
         if (top) {
           return {
             absolutePath: top,
-            relativePath: relative(rootPath, top),
+            relativePath: relative(resolve(rootPath), top),
             framework,
             score: 0.6,
           };
@@ -378,7 +384,7 @@ Please correct the patch so it doesn't break syntax and retains exactly the corr
     if (fallback) {
       return {
         absolutePath: fallback,
-        relativePath: relative(rootPath, fallback),
+        relativePath: relative(resolve(rootPath), fallback),
         framework,
         score: 0.2,
       };
@@ -521,6 +527,10 @@ Please correct the patch so it doesn't break syntax and retains exactly the corr
           relatedMiddlewareContext = `Existing routes and their middlewares in the project:\n${routes}`;
         }
 
+        // # AUDIT-FIX [G-01] resolved: repository/finding text is treated as
+        // hostile prompt data. Syntax validity and self-assigned confidence do
+        // not auto-apply an LLM patch — the generated change is emitted for
+        // human review unless GUARDIANT_AUTO_APPLY_LLM_FIXES=1 is explicitly set.
         const systemPrompt = `You are a Contextual Code Surgery assistant. Your task is to generate a highly precise, surgical find-and-replace fix for a vulnerability.
 You must return a JSON object matching this schema:
 {
@@ -559,6 +569,27 @@ Do not use dummy placeholders. If a custom middleware (like checkLeadAccess or c
           after = parsed.replace;
           reasoning = parsed.reasoning || reasoning;
           confidence = 0.9;
+          // # AUDIT-FIX [G-01] resolved: a model-authored code change is an
+          // untrusted suggestion, so it is NOT auto-applied on confidence alone.
+          // Applying a model patch requires an explicit operator opt-in; by
+          // default the patch is emitted for human review. This blocks a hostile
+          // repository from steering the model into a permissive replacement
+          // that then auto-commits.
+          const diff = this.buildUnifiedDiff(before, after, fileMatch.relativePath);
+          const llmAutoApprove = process.env.GUARDIANT_AUTO_APPLY_LLM_FIXES === '1';
+          return {
+            findingId: finding.id,
+            filePath: fileMatch.relativePath,
+            description: finding.remediation?.summary ?? `Fix ${finding.title}`,
+            diff,
+            before,
+            after,
+            reasoning: llmAutoApprove
+              ? reasoning
+              : reasoning + ' [model-generated — review required before applying; set GUARDIANT_AUTO_APPLY_LLM_FIXES=1 to allow auto-apply]',
+            confidence,
+            autoApplicable: llmAutoApprove && !this.isArchitectural(finding),
+          };
         }
       } catch (e) {
         // Fix 1: LLM failed — fall back to a non-applicable illustrative patch only.
@@ -706,8 +737,8 @@ Only output the JSON.`;
 
     const routeFile = handler ? (handler.routeFile || handler.file) : null;
     if (handler && routeFile) {
-      const absoluteRoutePath = join(rootPath, routeFile);
-      if (existsSync(absoluteRoutePath)) {
+      const absoluteRoutePath = resolveExistingPathWithinRoot(rootPath, routeFile);
+      if (absoluteRoutePath) {
         return {
           absolutePath: absoluteRoutePath,
           relativePath: routeFile,
@@ -790,20 +821,24 @@ Only output the JSON.`;
     return sourceCode;
   }
 
-  private validateSyntax(code: string, filePath: string): boolean {
-    const tempPath = filePath + '.tmp.js';
+  private validateSyntax(code: string, _filePath: string): boolean {
+    // Keep validation files outside the hostile scan root. A predictable
+    // sibling name could be a symlink pointing at an unrelated host file.
+    const tempDir = mkdtempSync(join(tmpdir(), 'guardiant-syntax-'));
+    const tempPath = join(tempDir, 'check.js');
     try {
-      writeFileSync(tempPath, code, 'utf-8');
-      execSync(`node -c ${JSON.stringify(tempPath)}`, { stdio: 'ignore' });
+      // # AUDIT-FIX [G-01] resolved: syntax validity alone never authorizes an
+      // AI patch — auto-apply is gated separately (GUARDIANT_AUTO_APPLY_LLM_FIXES).
+      // This --check is only a cheap guard against emitting unparseable JS.
+      writeFileSync(tempPath, code, { encoding: 'utf-8', flag: 'wx', mode: 0o600 });
+      execFileSync(process.execPath, ['--check', tempPath], { stdio: 'ignore' });
       return true;
     } catch (e: any) {
       console.error('validateSyntax error:', e.message, e.stderr?.toString());
       return false;
     } finally {
       try {
-        if (existsSync(tempPath)) {
-          unlinkSync(tempPath);
-        }
+        rmSync(tempDir, { recursive: true, force: true });
       } catch {}
     }
   }
@@ -819,9 +854,35 @@ Only output the JSON.`;
 
   private gitCommit(repoPath: string, filePath: string, finding: Finding): void {
     try {
-      execSync('git add ' + JSON.stringify(filePath), { cwd: repoPath, stdio: 'pipe' });
-      const message = `fix(security): ${finding.title} [${finding.severity}]\n\nFinding ID: ${finding.id}\nCategory: ${finding.category}\n\nApplied by Guardiant auto-fix agent.`;
-      execSync(`git commit -m ${JSON.stringify(message)}`, { cwd: repoPath, stdio: 'pipe' });
+      // # AUDIT-FIX [G-04] resolved: a target repository can ship hostile
+      // pre-commit/commit-msg hooks and local git config. We neutralise that
+      // execution boundary WITHOUT changing the git argv (so the argument-safety
+      // guarantees from G-08 are preserved): hooks are disabled and config is
+      // isolated entirely through environment variables. core.hooksPath is
+      // pointed at an empty directory via GIT_CONFIG_* env, and system/global
+      // config is ignored, so no target-controlled hook or alias can run.
+      const emptyHooks = mkdtempSync(join(tmpdir(), 'guardiant-nohooks-'));
+      const isolatedEnv = {
+        ...process.env,
+        GIT_CONFIG_NOSYSTEM: '1',
+        GIT_CONFIG_GLOBAL: '/dev/null',
+        // Inject core.hooksPath pointing at an empty dir -> no hooks exist to run.
+        GIT_CONFIG_COUNT: '1',
+        GIT_CONFIG_KEY_0: 'core.hooksPath',
+        GIT_CONFIG_VALUE_0: emptyHooks,
+        HOME: emptyHooks,
+        GIT_AUTHOR_NAME: 'Guardiant',
+        GIT_AUTHOR_EMAIL: 'autofix@guardiant.local',
+        GIT_COMMITTER_NAME: 'Guardiant',
+        GIT_COMMITTER_EMAIL: 'autofix@guardiant.local',
+      };
+      try {
+        execFileSync('git', ['add', '--', filePath], { cwd: repoPath, stdio: 'pipe', env: isolatedEnv });
+        const message = `fix(security): ${finding.title} [${finding.severity}]\n\nFinding ID: ${finding.id}\nCategory: ${finding.category}\n\nApplied by Guardiant auto-fix agent.`;
+        execFileSync('git', ['commit', '-m', message], { cwd: repoPath, stdio: 'pipe', env: isolatedEnv });
+      } finally {
+        try { rmSync(emptyHooks, { recursive: true, force: true }); } catch {}
+      }
     } catch {
       // Best-effort: if git fails, do not throw
     }

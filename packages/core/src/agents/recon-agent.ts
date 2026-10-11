@@ -3,7 +3,7 @@ import { createFinding } from './types.js';
 import type { AgentContext, AgentResult, Finding, ReconData, DiscoveredEndpoint, TechStackInfo } from '@guardiant/shared';
 import { OWASP_CATEGORIES } from '@guardiant/shared';
 import { createHttpClient, type HttpResponse } from '../http/index.js';
-import { readFileSync, existsSync, statSync, readdirSync } from 'fs';
+import { readFileSync, existsSync, lstatSync, readdirSync } from 'fs';
 import { join, relative, extname } from 'path';
 
 /**
@@ -836,7 +836,7 @@ Provide a detailed reconnaissance report including:
       for (const entry of entries) {
         const fullPath = join(dir, entry);
         try {
-          const stats = statSync(fullPath);
+          const stats = lstatSync(fullPath);
           if (stats.isDirectory()) {
             if (!excludeDirs.has(entry)) {
               walkDir(fullPath);
@@ -945,7 +945,7 @@ Provide a detailed reconnaissance report including:
     for (const configPath of configFilePatterns) {
       const fullPath = join(rootPath, configPath);
       if (existsSync(fullPath)) {
-        configFiles.push({ path: `/${configPath}`, accessible: true, sensitive: configPath !== 'package.json' });
+        configFiles.push({ path: configPath, accessible: true, sensitive: configPath !== 'package.json' });
       }
     }
 

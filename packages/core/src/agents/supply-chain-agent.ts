@@ -3,8 +3,8 @@ import { createFinding } from './types.js';
 import type { AgentContext, AgentResult, Finding } from '@guardiant/shared';
 import { OWASP_CATEGORIES } from '@guardiant/shared';
 import { createHttpClient } from '../http/index.js';
-import { readFileSync, existsSync } from 'fs';
-import { join } from 'path';
+import { readFileSync } from 'fs';
+import { resolveExistingPathWithinRoot } from '../security/path-safety.js';
 
 type HttpClient = ReturnType<typeof createHttpClient>;
 
@@ -348,8 +348,8 @@ Check for:
     const findings: Finding[] = [];
 
     // Read package.json directly from filesystem
-    const pkgPath = join(rootPath, 'package.json');
-    if (existsSync(pkgPath)) {
+    const pkgPath = resolveExistingPathWithinRoot(rootPath, 'package.json');
+    if (pkgPath) {
       try {
         const content = readFileSync(pkgPath, 'utf-8');
         const pkg = JSON.parse(content);
@@ -395,7 +395,7 @@ Check for:
     await this.teardown?.(context);
 
     return this.createSuccessResult(findings, {
-      filesAnalyzed: existsSync(pkgPath) ? 1 : 0,
+      filesAnalyzed: pkgPath ? 1 : 0,
       custom: { scanType: 'directory' },
     }, this.getDuration(startTime));
   }

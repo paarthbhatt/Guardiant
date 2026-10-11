@@ -2,7 +2,7 @@ import { AbstractAgent } from './base.js';
 import { createFinding } from './types.js';
 import type { AgentContext, AgentResult, Finding } from '@guardiant/shared';
 import { OWASP_CATEGORIES } from '@guardiant/shared';
-import { readFileSync, existsSync, statSync, readdirSync } from 'fs';
+import { readFileSync, existsSync, lstatSync, readdirSync } from 'fs';
 import { join, relative, extname } from 'path';
 
 /**
@@ -144,7 +144,7 @@ Look for:
         if (excludeDirs.has(entry)) continue;
         const fullPath = join(dir, entry);
         try {
-          const stats = statSync(fullPath);
+          const stats = lstatSync(fullPath);
           if (stats.isDirectory()) {
             walkDir(fullPath);
           } else if (stats.isFile() && textExtensions.has(extname(fullPath).toLowerCase())) {

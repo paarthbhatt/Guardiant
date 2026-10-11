@@ -4,7 +4,7 @@ import ora from 'ora';
 import Table from 'cli-table3';
 import { existsSync, writeFileSync, mkdirSync } from 'fs';
 import { dirname } from 'path';
-import { createOrchestrator, registerDefaultAgents } from '@guardiant/core';
+import { createOrchestrator, registerDefaultAgents, llmRuntimeStatus } from '@guardiant/core';
 import { createDatabase } from '@guardiant/database';
 import { createScan, startScan, completeScan } from '@guardiant/database';
 import { createLogger, formatDuration, formatSeverity, formatFindingsSummary, Analytics } from '@guardiant/shared';
@@ -16,6 +16,29 @@ import { formatAsSarif } from '@guardiant/core';
 // Generate a simple scan ID if database is unavailable
 function generateScanId(): string {
   return `scan-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
+}
+
+/**
+ * Honest LLM coverage status for a scan (BATCAVE-89 fix #2).
+ * - 'disabled': AI was intentionally off; the static scan is fully complete.
+ * - 'partial':  AI was requested but no provider was configured, or LLM calls
+ *               failed / rate-limited — LLM-dependent rules did NOT fully run.
+ * - 'complete': AI ran without failures.
+ */
+function computeLlmStatus(): { status: 'complete' | 'partial' | 'disabled'; detail?: string } {
+  if (!llmRuntimeStatus.requested) {
+    return { status: 'disabled', detail: 'AI disabled (GUARDIANT_ENABLE_AI!=1); deterministic static scan.' };
+  }
+  if (llmRuntimeStatus.providersInitialized === 0) {
+    return { status: 'partial', detail: 'AI requested but no valid provider configured; LLM-dependent rules skipped.' };
+  }
+  if (llmRuntimeStatus.failures > 0) {
+    return {
+      status: 'partial',
+      detail: `LLM calls failed (${llmRuntimeStatus.failures}); results are partial: ${llmRuntimeStatus.lastError ?? 'unknown error'}`,
+    };
+  }
+  return { status: 'complete' };
 }
 
 function generateReport(
@@ -45,6 +68,7 @@ function generateReport(
       scanId,
       target,
       duration: durationMs,
+      llmStatus: computeLlmStatus(),
       findings: results.findings,
       chains: results.chains,
       trustInversions: results.trustInversions,
@@ -343,7 +367,14 @@ export const scanCommand = new Command('scan')
         lowCount: severityCounts.low,
       });
 
-      spinner.succeed('Scan completed successfully!');
+      const llmStatus = computeLlmStatus();
+      if (llmStatus.status === 'partial') {
+        // Honesty contract: never claim full success when LLM-dependent rules
+        // did not run. The JSON output also carries llmStatus for consumers.
+        spinner.warn(`Scan completed with PARTIAL LLM coverage — ${llmStatus.detail}`);
+      } else {
+        spinner.succeed('Scan completed successfully!');
+      }
 
       // Display results
       console.log('\n' + chalk.bold('Scan Results'));

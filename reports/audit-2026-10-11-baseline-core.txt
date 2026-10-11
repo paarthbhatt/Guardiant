@@ -1,0 +1,21 @@
+Command: pnpm --filter @guardiant/core test
+Checkout baseline: 7ac76cb plus pre-existing scan.ts and llm/client.ts changes
+Captured from the initial test run before audit fixes.
+
+> @guardiant/core@0.2.0 test
+> vitest run
+
+RUN v2.1.9 packages/core
+
+PASS src/__tests__/taint-tracker.test.ts (5 tests)
+PASS src/__tests__/detector-and-indexer.test.ts (8 tests)
+PASS src/__tests__/exploit-agent.test.ts (12 tests)
+PASS src/__tests__/report.test.ts (7 tests)
+PASS src/__tests__/orchestrator.test.ts (10 tests)
+PASS src/__tests__/integration/pipeline.test.ts (17 tests)
+PASS src/__tests__/fix-agent.test.ts (14 tests)
+
+Test Files: 7 passed (7)
+Tests: 73 passed (73)
+Start at: 03:49:17
+Duration: 2.59s

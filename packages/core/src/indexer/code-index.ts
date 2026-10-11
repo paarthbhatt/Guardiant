@@ -1,7 +1,7 @@
 import { parse } from '@babel/parser';
 import traverse from '@babel/traverse';
 import * as t from '@babel/types';
-import { readFileSync, statSync, readdirSync } from 'fs';
+import { readFileSync, lstatSync, readdirSync } from 'fs';
 import { join, relative, extname, dirname, normalize } from 'path';
 
 export interface ParsedFile {
@@ -92,7 +92,7 @@ export async function buildCodeIndex(rootPath: string): Promise<CodeIndex> {
       if (excludeDirs.has(entry) || entry.toLowerCase().includes('guardiant-report') || entry.endsWith('.md')) continue;
       const fullPath = join(dir, entry);
       try {
-        const stats = statSync(fullPath);
+        const stats = lstatSync(fullPath);
         if (stats.isDirectory()) {
           walkDir(fullPath);
         } else if (stats.isFile()) {
