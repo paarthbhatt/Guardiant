@@ -4,10 +4,14 @@ import { relations } from 'drizzle-orm';
 /**
  * Scans table - tracks security scans
  */
-// # AUDIT-FIX [G-03]: Add tenant/user ownership and enforce it in every
-// operation before exposing this persistence layer through a shared service.
+// # AUDIT-FIX [G-03] resolved: scans now carry an explicit tenant owner, and
+// every read/write operation authorizes against an AuthScope (see
+// operations/auth-scope.ts). Child tables inherit tenancy through scanId, so a
+// caller who only learns another tenant's scan ID can no longer read or mutate
+// its target, evidence, or findings once a scope is supplied by a shared API.
 export const scans = sqliteTable('scans', {
   id: text('id').primaryKey(),
+  tenantId: text('tenant_id').notNull().default('local'),
   target: text('target').notNull(),
   type: text('type', { enum: ['url', 'directory', 'repository'] }).notNull(),
   status: text('status', { enum: ['pending', 'running', 'completed', 'failed', 'cancelled'] }).notNull().default('pending'),
@@ -26,6 +30,7 @@ export const scans = sqliteTable('scans', {
 }, (table) => ({
   statusIdx: index('scans_status_idx').on(table.status),
   createdAtIdx: index('scans_created_at_idx').on(table.createdAt),
+  tenantIdx: index('scans_tenant_idx').on(table.tenantId),
 }));
 
 /**

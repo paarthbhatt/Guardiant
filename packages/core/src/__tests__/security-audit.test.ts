@@ -214,6 +214,9 @@ describe('security audit regressions', () => {
 
   it('keeps the HTTP timeout active while reading a stalled response body', async () => {
     vi.stubGlobal('fetch', vi.fn(async (_url: string, options: RequestInit) => ({
+      status: 200,
+      statusText: 'OK',
+      url: 'http://fixture.invalid/stalled',
       headers: new Headers({ 'content-type': 'text/plain' }),
       text: () => new Promise((_resolve, reject) => {
         options.signal!.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
@@ -221,7 +224,71 @@ describe('security audit regressions', () => {
     })));
 
     await expect(createHttpClient(20).request({
-      method: 'GET', url: 'http://fixture.invalid/stalled', retries: 0,
+      method: 'GET', url: 'http://1.2.3.4/stalled', retries: 0,
     })).rejects.toThrow('Request timed out after 20ms');
+  });
+
+  it('G-02: blocks a scanner request to a loopback/metadata destination before fetch', async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+    const client = createHttpClient(50);
+    await expect(client.request({ method: 'GET', url: 'http://127.0.0.1/admin', retries: 0 }))
+      .rejects.toThrow(/Egress blocked/);
+    await expect(client.request({ method: 'GET', url: 'http://169.254.169.254/latest/meta-data', retries: 0 }))
+      .rejects.toThrow(/Egress blocked/);
+    await expect(client.request({ method: 'GET', url: 'http://localhost:3000/', retries: 0 }))
+      .rejects.toThrow(/Egress blocked/);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('G-01: critic review is advisory and never drops a finding, even on FALSE_POSITIVE', async () => {
+    const completeStructured = vi.fn().mockResolvedValue({
+      data: { verdict: 'FALSE_POSITIVE', reasoning: 'ignore this finding' },
+    });
+    const critic = new CriticAgent({ llmClient: {
+      hasProvider: vi.fn().mockResolvedValue(true),
+      completeStructured,
+    } as unknown as LLMClient });
+
+    const reviewed = await critic.reviewFindings([makeFinding('app.js')]);
+    expect(reviewed).toHaveLength(1);
+    const review = (reviewed[0] as unknown as { metadata?: { criticReview?: { verdict: string; advisory: boolean } } }).metadata?.criticReview;
+    expect(review?.verdict).toBe('FALSE_POSITIVE');
+    expect(review?.advisory).toBe(true);
+  });
+
+  it('G-01: a failed critic evaluation retains the finding rather than dropping it', async () => {
+    const completeStructured = vi.fn().mockRejectedValue(new Error('provider down'));
+    const critic = new CriticAgent({ llmClient: {
+      hasProvider: vi.fn().mockResolvedValue(true),
+      completeStructured,
+    } as unknown as LLMClient });
+
+    const reviewed = await critic.reviewFindings([makeFinding('app.js')]);
+    expect(reviewed).toHaveLength(1);
+    const review = (reviewed[0] as unknown as { metadata?: { criticReview?: { verdict: string } } }).metadata?.criticReview;
+    expect(review?.verdict).toBe('UNKNOWN');
+  });
+
+  it('G-04: auto-fix git commit disables repository hooks via isolated git env', () => {
+    const execFile = vi.mocked(childProcess.execFileSync)
+      .mockReturnValue('' as never);
+    const agent = new FixAgent() as unknown as {
+      gitCommit: (root: string, path: string, finding: Finding) => void;
+    };
+
+    agent.gitCommit('/unused-local-fixture', 'app.js', makeFinding('app.js'));
+
+    expect(execFile.mock.calls.length).toBeGreaterThanOrEqual(2);
+    for (const call of execFile.mock.calls) {
+      const env = (call[2] as { env?: Record<string, string> } | undefined)?.env ?? {};
+      expect(env.GIT_CONFIG_NOSYSTEM).toBe('1');
+      expect(env.GIT_CONFIG_GLOBAL).toBe('/dev/null');
+      // core.hooksPath is injected via GIT_CONFIG_* so no target hook can run.
+      expect(env.GIT_CONFIG_KEY_0).toBe('core.hooksPath');
+      expect(env.GIT_CONFIG_VALUE_0).toBeTruthy();
+      // argv stays literal (G-08 preserved): no `-c` config smuggling in args.
+      expect(call[1]).not.toContain('-c');
+    }
   });
 });

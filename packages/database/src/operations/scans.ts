@@ -2,9 +2,12 @@ import { eq, desc, asc, sql } from 'drizzle-orm';
 import type { Database } from '../connection.js';
 import { scans, type Scan, type NewScan } from '../schema/index.js';
 import { generateScanId } from '@guardiant/shared';
+import { type AuthScope, LOCAL_SCOPE, scanScopePredicate } from './auth-scope.js';
 
 /**
  * Create a new scan
+ *
+ * # AUDIT-FIX [G-03] resolved: the scan is stamped with the caller's tenant.
  */
 export async function createScan(
   db: Database,
@@ -12,13 +15,15 @@ export async function createScan(
     target: string;
     type: 'url' | 'directory' | 'repository';
     config?: NewScan['config'];
-  }
+  },
+  scope: AuthScope = LOCAL_SCOPE
 ): Promise<Scan> {
   const id = generateScanId();
   const now = new Date().toISOString();
 
   const [scan] = await db.insert(scans).values({
     id,
+    tenantId: scope.tenantId,
     target: data.target,
     type: data.type,
     status: 'pending',
@@ -35,24 +40,32 @@ export async function createScan(
 
 /**
  * Get a scan by ID
+ *
+ * # AUDIT-FIX [G-03] resolved: the lookup is constrained to the caller's tenant,
+ * so a known-but-foreign scan ID returns undefined rather than another tenant's
+ * data.
  */
-export async function getScan(db: Database, id: string): Promise<Scan | undefined> {
-  const [scan] = await db.select().from(scans).where(eq(scans.id, id));
+export async function getScan(db: Database, id: string, scope: AuthScope = LOCAL_SCOPE): Promise<Scan | undefined> {
+  const [scan] = await db.select().from(scans).where(scanScopePredicate(scope, eq(scans.id, id)));
   return scan;
 }
 
 /**
  * Update a scan
+ *
+ * # AUDIT-FIX [G-03] resolved: the update predicate includes the tenant scope,
+ * and tenantId can never be reassigned through the data payload.
  */
 export async function updateScan(
   db: Database,
   id: string,
-  data: Partial<Omit<NewScan, 'id'>>
+  data: Partial<Omit<NewScan, 'id' | 'tenantId'>>,
+  scope: AuthScope = LOCAL_SCOPE
 ): Promise<Scan | undefined> {
   const [scan] = await db
     .update(scans)
     .set(data)
-    .where(eq(scans.id, id))
+    .where(scanScopePredicate(scope, eq(scans.id, id)))
     .returning();
   return scan;
 }
@@ -60,12 +73,12 @@ export async function updateScan(
 /**
  * Start a scan
  */
-export async function startScan(db: Database, id: string): Promise<Scan | undefined> {
+export async function startScan(db: Database, id: string, scope: AuthScope = LOCAL_SCOPE): Promise<Scan | undefined> {
   const now = new Date().toISOString();
   return updateScan(db, id, {
     status: 'running',
     startedAt: now,
-  });
+  }, scope);
 }
 
 /**
@@ -74,14 +87,15 @@ export async function startScan(db: Database, id: string): Promise<Scan | undefi
 export async function completeScan(
   db: Database,
   id: string,
-  duration: number
+  duration: number,
+  scope: AuthScope = LOCAL_SCOPE
 ): Promise<Scan | undefined> {
   const now = new Date().toISOString();
   return updateScan(db, id, {
     status: 'completed',
     completedAt: now,
     duration,
-  });
+  }, scope);
 }
 
 /**
@@ -90,29 +104,32 @@ export async function completeScan(
 export async function failScan(
   db: Database,
   id: string,
-  error: string
+  error: string,
+  scope: AuthScope = LOCAL_SCOPE
 ): Promise<Scan | undefined> {
   const now = new Date().toISOString();
   return updateScan(db, id, {
     status: 'failed',
     completedAt: now,
     error,
-  });
+  }, scope);
 }
 
 /**
  * Cancel a scan
  */
-export async function cancelScan(db: Database, id: string): Promise<Scan | undefined> {
+export async function cancelScan(db: Database, id: string, scope: AuthScope = LOCAL_SCOPE): Promise<Scan | undefined> {
   const now = new Date().toISOString();
   return updateScan(db, id, {
     status: 'cancelled',
     completedAt: now,
-  });
+  }, scope);
 }
 
 /**
  * List scans with pagination
+ *
+ * # AUDIT-FIX [G-03] resolved: results are always filtered to the caller's tenant.
  */
 export async function listScans(
   db: Database,
@@ -122,7 +139,8 @@ export async function listScans(
     offset?: number;
     orderBy?: 'createdAt' | 'updatedAt';
     order?: 'asc' | 'desc';
-  } = {}
+  } = {},
+  scope: AuthScope = LOCAL_SCOPE
 ): Promise<Scan[]> {
   const {
     status,
@@ -132,17 +150,13 @@ export async function listScans(
     order = 'desc',
   } = options;
 
-  let query = db.select().from(scans);
-
-  if (status) {
-    query = query.where(eq(scans.status, status)) as typeof query;
-  }
+  const predicate = scanScopePredicate(scope, status ? eq(scans.status, status) : undefined);
 
   // Order by
   const orderColumn = orderBy === 'createdAt' ? scans.createdAt : scans.createdAt; // Only createdAt available
   const orderFn = order === 'asc' ? asc : desc;
 
-  return query.orderBy(orderFn(orderColumn)).limit(limit).offset(offset);
+  return db.select().from(scans).where(predicate).orderBy(orderFn(orderColumn)).limit(limit).offset(offset);
 }
 
 /**
@@ -150,25 +164,24 @@ export async function listScans(
  */
 export async function countScans(
   db: Database,
-  options: { status?: Scan['status'] } = {}
+  options: { status?: Scan['status'] } = {},
+  scope: AuthScope = LOCAL_SCOPE
 ): Promise<number> {
   const { status } = options;
 
-  let query = db.select({ count: sql<number>`count(*)` }).from(scans);
+  const predicate = scanScopePredicate(scope, status ? eq(scans.status, status) : undefined);
 
-  if (status) {
-    query = query.where(eq(scans.status, status)) as typeof query;
-  }
-
-  const [result] = await query;
+  const [result] = await db.select({ count: sql<number>`count(*)` }).from(scans).where(predicate);
   return result?.count ?? 0;
 }
 
 /**
  * Delete a scan
+ *
+ * # AUDIT-FIX [G-03] resolved: deletion is tenant-scoped; child rows cascade.
  */
-export async function deleteScan(db: Database, id: string): Promise<boolean> {
-  const [result] = await db.delete(scans).where(eq(scans.id, id)).returning();
+export async function deleteScan(db: Database, id: string, scope: AuthScope = LOCAL_SCOPE): Promise<boolean> {
+  const [result] = await db.delete(scans).where(scanScopePredicate(scope, eq(scans.id, id))).returning();
   return !!result;
 }
 

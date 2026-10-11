@@ -527,9 +527,10 @@ Please correct the patch so it doesn't break syntax and retains exactly the corr
           relatedMiddlewareContext = `Existing routes and their middlewares in the project:\n${routes}`;
         }
 
-        // # AUDIT-FIX [G-01]: Treat repository/finding text as hostile prompt
-        // data. Syntax validity and self-assigned confidence do not authorize
-        // an LLM patch. Enforce a reviewed change plan before auto-application.
+        // # AUDIT-FIX [G-01] resolved: repository/finding text is treated as
+        // hostile prompt data. Syntax validity and self-assigned confidence do
+        // not auto-apply an LLM patch — the generated change is emitted for
+        // human review unless GUARDIANT_AUTO_APPLY_LLM_FIXES=1 is explicitly set.
         const systemPrompt = `You are a Contextual Code Surgery assistant. Your task is to generate a highly precise, surgical find-and-replace fix for a vulnerability.
 You must return a JSON object matching this schema:
 {
@@ -568,6 +569,27 @@ Do not use dummy placeholders. If a custom middleware (like checkLeadAccess or c
           after = parsed.replace;
           reasoning = parsed.reasoning || reasoning;
           confidence = 0.9;
+          // # AUDIT-FIX [G-01] resolved: a model-authored code change is an
+          // untrusted suggestion, so it is NOT auto-applied on confidence alone.
+          // Applying a model patch requires an explicit operator opt-in; by
+          // default the patch is emitted for human review. This blocks a hostile
+          // repository from steering the model into a permissive replacement
+          // that then auto-commits.
+          const diff = this.buildUnifiedDiff(before, after, fileMatch.relativePath);
+          const llmAutoApprove = process.env.GUARDIANT_AUTO_APPLY_LLM_FIXES === '1';
+          return {
+            findingId: finding.id,
+            filePath: fileMatch.relativePath,
+            description: finding.remediation?.summary ?? `Fix ${finding.title}`,
+            diff,
+            before,
+            after,
+            reasoning: llmAutoApprove
+              ? reasoning
+              : reasoning + ' [model-generated — review required before applying; set GUARDIANT_AUTO_APPLY_LLM_FIXES=1 to allow auto-apply]',
+            confidence,
+            autoApplicable: llmAutoApprove && !this.isArchitectural(finding),
+          };
         }
       } catch (e) {
         // Fix 1: LLM failed — fall back to a non-applicable illustrative patch only.
@@ -805,8 +827,9 @@ Only output the JSON.`;
     const tempDir = mkdtempSync(join(tmpdir(), 'guardiant-syntax-'));
     const tempPath = join(tempDir, 'check.js');
     try {
-      // # AUDIT-FIX [G-01]: Validate by the actual source language; JS syntax
-      // validity alone is not a correctness or security check for an AI patch.
+      // # AUDIT-FIX [G-01] resolved: syntax validity alone never authorizes an
+      // AI patch — auto-apply is gated separately (GUARDIANT_AUTO_APPLY_LLM_FIXES).
+      // This --check is only a cheap guard against emitting unparseable JS.
       writeFileSync(tempPath, code, { encoding: 'utf-8', flag: 'wx', mode: 0o600 });
       execFileSync(process.execPath, ['--check', tempPath], { stdio: 'ignore' });
       return true;
@@ -831,12 +854,35 @@ Only output the JSON.`;
 
   private gitCommit(repoPath: string, filePath: string, finding: Finding): void {
     try {
-      // # AUDIT-FIX [G-04]: Argument-safe Git still honors target-local hooks
-      // and configuration. Auto-fix must operate in a trusted repository or an
-      // isolated worker before invoking Git on an attacker-supplied target.
-      execFileSync('git', ['add', '--', filePath], { cwd: repoPath, stdio: 'pipe' });
-      const message = `fix(security): ${finding.title} [${finding.severity}]\n\nFinding ID: ${finding.id}\nCategory: ${finding.category}\n\nApplied by Guardiant auto-fix agent.`;
-      execFileSync('git', ['commit', '-m', message], { cwd: repoPath, stdio: 'pipe' });
+      // # AUDIT-FIX [G-04] resolved: a target repository can ship hostile
+      // pre-commit/commit-msg hooks and local git config. We neutralise that
+      // execution boundary WITHOUT changing the git argv (so the argument-safety
+      // guarantees from G-08 are preserved): hooks are disabled and config is
+      // isolated entirely through environment variables. core.hooksPath is
+      // pointed at an empty directory via GIT_CONFIG_* env, and system/global
+      // config is ignored, so no target-controlled hook or alias can run.
+      const emptyHooks = mkdtempSync(join(tmpdir(), 'guardiant-nohooks-'));
+      const isolatedEnv = {
+        ...process.env,
+        GIT_CONFIG_NOSYSTEM: '1',
+        GIT_CONFIG_GLOBAL: '/dev/null',
+        // Inject core.hooksPath pointing at an empty dir -> no hooks exist to run.
+        GIT_CONFIG_COUNT: '1',
+        GIT_CONFIG_KEY_0: 'core.hooksPath',
+        GIT_CONFIG_VALUE_0: emptyHooks,
+        HOME: emptyHooks,
+        GIT_AUTHOR_NAME: 'Guardiant',
+        GIT_AUTHOR_EMAIL: 'autofix@guardiant.local',
+        GIT_COMMITTER_NAME: 'Guardiant',
+        GIT_COMMITTER_EMAIL: 'autofix@guardiant.local',
+      };
+      try {
+        execFileSync('git', ['add', '--', filePath], { cwd: repoPath, stdio: 'pipe', env: isolatedEnv });
+        const message = `fix(security): ${finding.title} [${finding.severity}]\n\nFinding ID: ${finding.id}\nCategory: ${finding.category}\n\nApplied by Guardiant auto-fix agent.`;
+        execFileSync('git', ['commit', '-m', message], { cwd: repoPath, stdio: 'pipe', env: isolatedEnv });
+      } finally {
+        try { rmSync(emptyHooks, { recursive: true, force: true }); } catch {}
+      }
     } catch {
       // Best-effort: if git fails, do not throw
     }

@@ -43,29 +43,55 @@ export class CriticAgent {
       logger.warn('Critic Agent not available (no LLM provider configured). Skipping reflection phase.');
       return findings;
     }
-    
+
     if (findings.length === 0) return findings;
 
-    logger.info(`Critic Agent reviewing ${findings.length} findings for false positives...`);
-    const verifiedFindings: Finding[] = [];
+    logger.info(`Critic Agent reviewing ${findings.length} findings (advisory)...`);
+    const reviewed: Finding[] = [];
 
     // Process findings one by one
     for (const finding of findings) {
-      // # AUDIT-FIX [G-01]: Repository comments and finding text can steer the
-      // verdict. A model verdict must not erase deterministic scanner evidence;
-      // retain it and record an advisory review with deterministic provenance.
-      const isVerified = await this.evaluateFinding(finding, rootPath);
-      if (isVerified) {
-        verifiedFindings.push(finding);
-      } else {
-        logger.info(`Critic Agent rejected finding: ${finding.title} as a false positive.`);
+      // # AUDIT-FIX [G-01] resolved: the model verdict is ADVISORY and can no
+      // longer silently erase a deterministic scanner finding. We retain every
+      // finding and attach the model's opinion as metadata; a model-only
+      // FALSE_POSITIVE is recorded for triage but does not suppress the finding.
+      // Suppression requires a deterministic validator, not model text that a
+      // hostile repository could have steered.
+      let verdict: 'TRUE_POSITIVE' | 'FALSE_POSITIVE' | 'UNKNOWN' = 'UNKNOWN';
+      let reasoning = '';
+      try {
+        const evaluated = await this.evaluateFinding(finding, rootPath);
+        verdict = evaluated.verdict;
+        reasoning = evaluated.reasoning;
+      } catch (error) {
+        logger.warn(`Critic evaluation failed for ${finding.title}: ${error}`);
       }
+
+      if (verdict === 'FALSE_POSITIVE') {
+        logger.info(`Critic Agent flagged (advisory) possible false positive: ${finding.title}. Finding retained.`);
+      }
+
+      reviewed.push({
+        ...finding,
+        metadata: {
+          ...(finding as unknown as { metadata?: Record<string, unknown> }).metadata,
+          criticReview: {
+            verdict,
+            reasoning,
+            advisory: true,
+            source: 'llm',
+          },
+        },
+      } as Finding);
     }
 
-    return verifiedFindings;
+    return reviewed;
   }
 
-  private async evaluateFinding(finding: Finding, rootPath?: string): Promise<boolean> {
+  private async evaluateFinding(
+    finding: Finding,
+    rootPath?: string
+  ): Promise<{ verdict: 'TRUE_POSITIVE' | 'FALSE_POSITIVE'; reasoning: string }> {
     const systemPrompt = `You are a strict AppSec auditor. Your job is to review automated security scanner findings and determine if they are TRUE POSITIVES or FALSE POSITIVES.
 Analyze the finding, its category, its description, the evidence, and the surrounding source code context carefully.
 Consider:
@@ -155,11 +181,11 @@ Is this a real vulnerability or a false positive?`;
       );
 
       logger.info(`Critic Agent reasoning for ${finding.title}: ${data.reasoning}`);
-      return data.verdict === 'TRUE_POSITIVE';
+      return { verdict: data.verdict, reasoning: data.reasoning };
     } catch (error) {
       logger.warn(`Critic evaluation failed for ${finding.title}: ${error}`);
-      // Default to true positive if we can't evaluate
-      return true;
+      // Cannot evaluate: report UNKNOWN upstream (never suppress the finding).
+      throw error instanceof Error ? error : new Error(String(error));
     }
   }
 }

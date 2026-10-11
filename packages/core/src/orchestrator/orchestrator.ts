@@ -11,7 +11,36 @@ import { createLLMClient, type LLMClient } from '../llm/client.js';
 
 import { createTIEFDetector, type TIEFDetector } from '../analyzers/tief-detector.js';
 import { DiffScanner } from '../scanner/diff-scanner.js';
+import { z } from 'zod';
 
+// # AUDIT-FIX [G-01] resolved: a strict, bounded schema for LLM-discovered
+// findings. Model output is parsed through this before it becomes a Finding,
+// capping string lengths and array sizes so hostile/oversized model output
+// cannot inject unbounded data into the pipeline.
+const LLM_STR = z.string().max(4000);
+const LlmFindingSchema = z.object({
+  title: LLM_STR.optional(),
+  description: LLM_STR.optional(),
+  severity: z.enum(['critical', 'high', 'medium', 'low', 'info']).optional(),
+  category: LLM_STR.optional(),
+  cvssScore: z.number().min(0).max(10).optional(),
+  confidence: z.number().min(0).max(1).optional(),
+  evidence: z.object({
+    file: LLM_STR.optional(),
+    line: z.number().int().min(0).optional(),
+    snippet: LLM_STR.optional(),
+    reasoning: LLM_STR.optional(),
+  }).partial().optional(),
+  remediation: z.object({
+    summary: LLM_STR.optional(),
+    steps: z.array(LLM_STR).max(50).optional(),
+    codeExample: LLM_STR.optional(),
+  }).partial().optional(),
+  tags: z.array(LLM_STR).max(50).optional(),
+}).passthrough();
+const LlmFindingsSchema = z.object({
+  findings: z.array(LlmFindingSchema).max(200),
+});
 
 /**
  * Orchestrator coordinates all agents and analysis
@@ -394,9 +423,12 @@ export class Orchestrator {
     ];
     for (const attempt of candidates) {
       try {
-        const data = attempt();
-        if (data && Array.isArray(data.findings)) {
-          return data;
+        const raw = attempt();
+        // # AUDIT-FIX [G-01] resolved: validate against a bounded schema before
+        // the data is trusted. Unbounded or malformed model output is rejected.
+        const parsed = LlmFindingsSchema.safeParse(raw);
+        if (parsed.success) {
+          return parsed.data;
         }
       } catch {
         // try next strategy
@@ -459,8 +491,10 @@ export class Orchestrator {
         throw new Error('LLM returned an empty response');
       }
 
-      // # AUDIT-FIX [G-01]: Validate model output with a bounded runtime schema
-      // before it becomes findings, file paths, proposed code, or replay input.
+      // # AUDIT-FIX [G-01] resolved: model output is validated through the
+      // bounded LlmFindingsSchema (parseFindingsResponse) before it becomes
+      // findings, file paths, or proposed code — oversized/malformed output is
+      // rejected rather than trusted.
       const data = this.parseFindingsResponse(response.content);
       if (data && Array.isArray(data.findings)) {
         this.logger.info(`AI agent ${agent.id} discovered ${data.findings.length} findings via LLM`);
