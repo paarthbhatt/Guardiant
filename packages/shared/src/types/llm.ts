@@ -29,27 +29,27 @@ export interface LLMConfig {
 export const DEFAULT_LLM_CONFIGS: Record<LLMProvider, { model: string; maxTokens: number }> = {
   anthropic: {
     model: 'claude-sonnet-4-6',
-    maxTokens: 4096,
+    maxTokens: 16384,
   },
   openrouter: {
     model: 'nvidia/nemotron-3-ultra-550b-a55b:free',
-    maxTokens: 4096,
+    maxTokens: 16384,
   },
   gemini: {
     model: 'gemini-2.5-flash',
-    maxTokens: 4096,
+    maxTokens: 16384,
   },
   openai: {
     model: 'gpt-4o',
-    maxTokens: 4096,
+    maxTokens: 16384,
   },
   zenmux: {
     model: 'stepfun/step-3.7-flash-free',
-    maxTokens: 4096,
+    maxTokens: 16384,
   },
   nvidia: {
     model: 'meta/llama-3.3-70b-instruct',
-    maxTokens: 4096,
+    maxTokens: 16384,
   },
 };
 
