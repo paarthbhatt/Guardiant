@@ -34,7 +34,8 @@ export interface LlmRuntimeStatus {
 }
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 20_000;
-const DEFAULT_MAX_TOKENS = 2_048;
+const DEFAULT_MAX_TOKENS = 4_096;
+const REASONING_MODEL_MAX_TOKENS = 16_384;
 
 function boundedEnvNumber(name: string, fallback: number, min: number, max: number): number {
   const raw = process.env[name];
@@ -48,7 +49,17 @@ function llmRequestTimeoutMs(): number {
 }
 
 function llmMaxTokens(): number {
-  return boundedEnvNumber('GUARDIANT_AI_MAX_TOKENS', DEFAULT_MAX_TOKENS, 256, 16_384);
+  const configured = process.env.GUARDIANT_AI_MAX_TOKENS;
+  if (configured !== undefined && configured.trim() !== '') {
+    return boundedEnvNumber('GUARDIANT_AI_MAX_TOKENS', DEFAULT_MAX_TOKENS, 256, 16_384);
+  }
+  const model = (process.env.OPENAI_MODEL ?? process.env.GUARDIANT_OPENAI_MODEL ?? '').toLowerCase();
+  // HCNSEC's reasoning routes (including auto and Qwen3.8-Flash-Next) can
+  // spend most of a small output budget on reasoning before emitting the
+  // required JSON object. Keep ordinary providers bounded, while preserving
+  // enough room for these explicitly selected reasoning models.
+  if (model === 'auto' || model.includes('qwen')) return REASONING_MODEL_MAX_TOKENS;
+  return DEFAULT_MAX_TOKENS;
 }
 
 export const llmRuntimeStatus: LlmRuntimeStatus = {
