@@ -41,6 +41,18 @@ function computeLlmStatus(): { status: 'complete' | 'partial' | 'disabled'; deta
   return { status: 'complete' };
 }
 
+function partialScanResults(): Awaited<ReturnType<ReturnType<typeof createOrchestrator>['runScan']>> {
+  return {
+    findings: [],
+    chains: [],
+    vcvfFingerprints: [],
+    trustInversions: [],
+    agentResults: {} as Record<AgentId, AgentResult>,
+    exploitNarratives: [],
+    fixPatches: [],
+  };
+}
+
 function generateReport(
   results: { findings: Finding[]; chains: unknown[]; trustInversions: unknown[]; agentResults: Record<AgentId, AgentResult>; exploitNarratives?: Array<{ findingId: string; attackSteps: string[]; pocCommand: string; whyItWorks: string; trustBoundary: string; fix: string; severity: string }>; fixPatches?: Array<{ findingId: string; filePath: string; description: string; diff: string; confidence: number; autoApplicable: boolean; reasoning: string }> },
   target: string,
@@ -321,9 +333,31 @@ export const scanCommand = new Command('scan')
       const orchestrator = createOrchestrator();
       const startTime = Date.now();
 
-      // Run the scan
+      // Run the scan with a hard outer deadline. Provider-level timeouts keep
+      // individual requests bounded; this deadline prevents a sequence of
+      // slow phases from becoming the platform's 600s adapter timeout.
       spinner.text = 'Running security agents...';
-      const results = await orchestrator.runScan(config);
+      let timedOut = false;
+      let results: Awaited<ReturnType<typeof orchestrator.runScan>>;
+      let scanTimer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        results = await Promise.race([
+          orchestrator.runScan(config),
+          new Promise<never>((_, reject) => {
+            scanTimer = setTimeout(() => reject(new Error(`scan timeout after ${validatedArgs.timeout}ms`)), validatedArgs.timeout);
+          }),
+        ]);
+      } catch (scanError) {
+        if (!(scanError instanceof Error) || !scanError.message.startsWith('scan timeout after ')) throw scanError;
+        timedOut = true;
+        llmRuntimeStatus.requested = true;
+        llmRuntimeStatus.failures += 1;
+        llmRuntimeStatus.lastError = scanError.message;
+        results = partialScanResults();
+        logger.warn(`[scan:timeout] ${scanError.message}; writing diagnostic partial output`);
+      } finally {
+        if (scanTimer) clearTimeout(scanTimer);
+      }
 
       // Calculate duration
       const durationMs = Date.now() - startTime;
@@ -368,10 +402,11 @@ export const scanCommand = new Command('scan')
       });
 
       const llmStatus = computeLlmStatus();
-      if (llmStatus.status === 'partial') {
+      const publishable = !timedOut && llmStatus.status === 'complete';
+      if (!publishable) {
         // Honesty contract: never claim full success when LLM-dependent rules
         // did not run. The JSON output also carries llmStatus for consumers.
-        spinner.warn(`Scan completed with PARTIAL LLM coverage — ${llmStatus.detail}`);
+        spinner.warn(`Scan completed with PARTIAL LLM coverage — ${timedOut ? `scan timeout after ${validatedArgs.timeout}ms` : llmStatus.detail}`);
       } else {
         spinner.succeed('Scan completed successfully!');
       }
@@ -468,7 +503,21 @@ export const scanCommand = new Command('scan')
             mkdirSync(outputDir, { recursive: true });
           }
 
-          const reportContent = generateReport(results, target, durationMs, scanId, options.format);
+          const reportContent = options.format === 'json'
+            ? JSON.stringify({
+              scanId,
+              target,
+              duration: durationMs,
+              scanStatus: publishable ? 'complete' : 'partial',
+              publishable,
+              llmStatus,
+              timeout: timedOut ? `scan timeout after ${validatedArgs.timeout}ms` : undefined,
+              findings: results.findings,
+              chains: results.chains,
+              trustInversions: results.trustInversions,
+              agentResults: results.agentResults,
+            }, null, 2)
+            : generateReport(results, target, durationMs, scanId, options.format);
           writeFileSync(options.output, reportContent, 'utf-8');
           spinner.succeed(`Output written to ${options.output}`);
         } catch (writeError) {
@@ -485,7 +534,9 @@ export const scanCommand = new Command('scan')
       const hasCritical = results.findings.some((f: Finding) => f.severity === 'critical');
       const hasHigh = results.findings.some((f: Finding) => f.severity === 'high');
 
-      if (hasCritical) {
+      if (!publishable || timedOut) {
+        process.exit(1);
+      } else if (hasCritical) {
         process.exit(2); // Critical findings
       } else if (hasHigh) {
         process.exit(1); // High findings

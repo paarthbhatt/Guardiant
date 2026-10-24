@@ -33,6 +33,24 @@ export interface LlmRuntimeStatus {
   lastError?: string;
 }
 
+const DEFAULT_REQUEST_TIMEOUT_MS = 20_000;
+const DEFAULT_MAX_TOKENS = 2_048;
+
+function boundedEnvNumber(name: string, fallback: number, min: number, max: number): number {
+  const raw = process.env[name];
+  if (raw === undefined || raw.trim() === '') return fallback;
+  const value = Number(raw);
+  return Number.isFinite(value) && value >= min && value <= max ? value : fallback;
+}
+
+function llmRequestTimeoutMs(): number {
+  return boundedEnvNumber('GUARDIANT_AI_TIMEOUT_MS', DEFAULT_REQUEST_TIMEOUT_MS, 1_000, 120_000);
+}
+
+function llmMaxTokens(): number {
+  return boundedEnvNumber('GUARDIANT_AI_MAX_TOKENS', DEFAULT_MAX_TOKENS, 256, 16_384);
+}
+
 export const llmRuntimeStatus: LlmRuntimeStatus = {
   requested: false,
   providersInitialized: 0,
@@ -51,7 +69,7 @@ export class LLMClient {
   constructor(config: Partial<LLMConfig> = {}) {
     this.defaultConfig = {
       provider: 'anthropic',
-      maxTokens: 4096,
+      maxTokens: llmMaxTokens(),
       temperature: 0.7,
       ...config,
     };
@@ -160,6 +178,8 @@ export class LLMClient {
     const client = new OpenAI({
       apiKey,
       baseURL: process.env.OPENAI_BASE_URL ?? 'https://api.openai.com/v1',
+      timeout: llmRequestTimeoutMs(),
+      maxRetries: 0,
     });
 
     return {

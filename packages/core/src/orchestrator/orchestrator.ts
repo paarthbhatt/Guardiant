@@ -231,7 +231,10 @@ export class Orchestrator {
     // Phase 2.6: Critic Agent — LLM reflection to filter false positives
     this.logger.info('Phase 2.6: Running Critic Agent...');
     const preCriticCount = validatedFindings.length;
+    const criticStarted = Date.now();
+    this.logger.info(`[llm-phase:start] agent=critic findings=${preCriticCount}`);
     const finalFindings = await this.criticAgent.reviewFindings(validatedFindings, config.type === 'directory' ? config.target : undefined);
+    this.logger.info(`[llm-phase:complete] agent=critic findings=${finalFindings.length} durationMs=${Date.now() - criticStarted}`);
     this.logger.info(`Critic Agent filtered ${preCriticCount - finalFindings.length} false positives`);
 
     // Update agent results to reflect only validated findings
@@ -441,6 +444,8 @@ export class Orchestrator {
     const hasLLM = await this.llmClient.hasProvider();
     if (!hasLLM) return [];
 
+    const phaseStarted = Date.now();
+    this.logger.info(`[llm-phase:start] agent=${agent.id}`);
     try {
       const systemPrompt = agent.getSystemPrompt() + `
 \n\nIMPORTANT: You must return a JSON object matching this schema exactly. Do not output any thinking or extra text, ONLY the JSON block:
@@ -498,6 +503,7 @@ export class Orchestrator {
       const data = this.parseFindingsResponse(response.content);
       if (data && Array.isArray(data.findings)) {
         this.logger.info(`AI agent ${agent.id} discovered ${data.findings.length} findings via LLM`);
+        this.logger.info(`[llm-phase:complete] agent=${agent.id} findings=${data.findings.length} durationMs=${Date.now() - phaseStarted}`);
         return data.findings.map((f: any, idx: number) => ({
           id: `finding_${agent.id}_llm_${idx}_${Date.now()}`,
           title: f.title || 'Vulnerability Discovered',
@@ -524,6 +530,7 @@ export class Orchestrator {
         }));
       }
     } catch (error) {
+      this.logger.warn(`[llm-phase:failed] agent=${agent.id} durationMs=${Date.now() - phaseStarted} error=${error instanceof Error ? error.message : 'unknown'}`);
       this.logger.warn(`AI agent ${agent.id} reasoning failed: ${error}`);
     }
 
