@@ -1,4 +1,4 @@
-import type { ScanConfig, AgentId, AgentResult, Finding, VulnerabilityChain, VCVFFingerprint, TrustInversion, ReconData, VCVFPatternType, ExploitNarrative, FixPatch, AgentContext } from '@guardiant/shared';
+import type { ScanConfig, AgentId, AgentResult, Finding, VulnerabilityChain, VCVFFingerprint, TrustInversion, ReconData, VCVFPatternType, ExploitNarrative, FixPatch, AgentContext, BaseAgent } from '@guardiant/shared';
 import { DEFAULT_AGENT_CONFIGS, createLogger } from '@guardiant/shared';
 import { agentRegistry } from '../agents/registry.js';
 import { AGENT_EXECUTION_ORDER } from './constants.js';
@@ -153,24 +153,27 @@ export class Orchestrator {
       ? allParallelAgents.filter(id => requestedAgents.includes(id))
       : allParallelAgents;
 
-    const agentsToRun = parallelAgents.map(id => ({ id, agent: agentRegistry.get(id) })).filter(a => !!a.agent);
+    const agentsToRun = parallelAgents
+      .map(id => ({ id, agent: agentRegistry.get(id) }))
+      .filter((a): a is { id: AgentId; agent: BaseAgent } => !!a.agent);
 
-    const agentResultsArray = [];
-    for (const agentObj of agentsToRun) {
+    const agentResultsArray: AgentResult[] = [];
+    const maxConcurrency = Math.max(1, config.maxConcurrency ?? 4);
+
+    const executeAgent = async (agentObj: { id: string; agent: BaseAgent }): Promise<AgentResult> => {
       const agentId = agentObj.id as AgentId;
       const agent = agentObj.agent!;
       const agentConfig = config.agentConfigs?.[agentId] ?? DEFAULT_AGENT_CONFIGS[agentId];
 
       if (agentConfig?.enabled === false) {
         this.logger.info(`Skipping ${agentId} agent (disabled)`);
-        agentResultsArray.push({
+        return {
           agentId,
           status: 'completed' as const,
           findings: [],
           metadata: {},
           duration: 0,
-        });
-        continue;
+        };
       }
 
       this.logger.info(`Running ${agentId} agent...`);
@@ -189,6 +192,7 @@ export class Orchestrator {
         metadata: {
           codeIndex,
         },
+        signal,
       } as any;
 
       try {
@@ -201,27 +205,41 @@ export class Orchestrator {
         const mergedFindings = [...staticResult.findings, ...llmFindings];
         this.logger.info(`${agentId} completed: ${mergedFindings.length} findings (${staticResult.findings.length} static, ${llmFindings.length} LLM)`);
         
-        agentResultsArray.push({
+        return {
           agentId,
           status: 'completed' as const,
           findings: mergedFindings,
           metadata: {
             ...staticResult.metadata,
-            llmFindingsCount: llmFindings.length,
+            custom: {
+              ...staticResult.metadata.custom,
+              llmFindingsCount: llmFindings.length,
+            },
           },
           duration: Date.now() - startTime,
-        });
+        };
       } catch (error) {
+        if (signal?.aborted || (error instanceof Error && error.name === 'AbortError')) {
+          throw error;
+        }
         this.logger.error(`${agentId} failed:`, error);
-        agentResultsArray.push({
+        return {
           agentId,
           status: 'failed' as const,
           findings: [],
           metadata: {},
           error: error instanceof Error ? error.message : 'Unknown error',
           duration: Date.now() - startTime,
-        });
+        };
       }
+    };
+
+    for (let offset = 0; offset < agentsToRun.length; offset += maxConcurrency) {
+      throwIfAborted();
+      const batch = agentsToRun.slice(offset, offset + maxConcurrency);
+      this.logger.info(`Running agent batch ${Math.floor(offset / maxConcurrency) + 1} (${batch.length} agents)...`);
+      const batchResults = await Promise.all(batch.map(executeAgent));
+      agentResultsArray.push(...batchResults);
     }
 
     for (const result of agentResultsArray) {

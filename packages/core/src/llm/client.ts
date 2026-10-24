@@ -45,7 +45,7 @@ function boundedEnvNumber(name: string, fallback: number, min: number, max: numb
 }
 
 function llmRequestTimeoutMs(): number {
-  return boundedEnvNumber('GUARDIANT_AI_TIMEOUT_MS', DEFAULT_REQUEST_TIMEOUT_MS, 1_000, 120_000);
+  return boundedEnvNumber('GUARDIANT_AI_TIMEOUT_MS', DEFAULT_REQUEST_TIMEOUT_MS, 1_000, 300_000);
 }
 
 function llmMaxTokens(): number {
