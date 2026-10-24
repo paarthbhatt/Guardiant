@@ -10,6 +10,7 @@ import { createScan, startScan, completeScan } from '@guardiant/database';
 import { createLogger, formatDuration, formatSeverity, formatFindingsSummary, Analytics } from '@guardiant/shared';
 import type { ScanConfig, AgentId, AgentResult, Finding } from '@guardiant/shared';
 import { parseScanArgs } from '../validation/scan-args.js';
+import { runWithTimeout, ScanTimeoutError } from './scan-timeout.js';
 
 import { formatAsSarif } from '@guardiant/core';
 
@@ -339,24 +340,21 @@ export const scanCommand = new Command('scan')
       spinner.text = 'Running security agents...';
       let timedOut = false;
       let results: Awaited<ReturnType<typeof orchestrator.runScan>>;
-      let scanTimer: ReturnType<typeof setTimeout> | undefined;
+      const scanAbort = new AbortController();
       try {
-        results = await Promise.race([
-          orchestrator.runScan(config),
-          new Promise<never>((_, reject) => {
-            scanTimer = setTimeout(() => reject(new Error(`scan timeout after ${validatedArgs.timeout}ms`)), validatedArgs.timeout);
-          }),
-        ]);
+        results = await runWithTimeout(
+          () => orchestrator.runScan(config, scanAbort.signal),
+          validatedArgs.timeout,
+          () => scanAbort.abort(),
+        );
       } catch (scanError) {
-        if (!(scanError instanceof Error) || !scanError.message.startsWith('scan timeout after ')) throw scanError;
+        if (!(scanError instanceof ScanTimeoutError)) throw scanError;
         timedOut = true;
         llmRuntimeStatus.requested = true;
         llmRuntimeStatus.failures += 1;
         llmRuntimeStatus.lastError = scanError.message;
         results = partialScanResults();
         logger.warn(`[scan:timeout] ${scanError.message}; writing diagnostic partial output`);
-      } finally {
-        if (scanTimer) clearTimeout(scanTimer);
       }
 
       // Calculate duration
@@ -515,6 +513,8 @@ export const scanCommand = new Command('scan')
               findings: results.findings,
               chains: results.chains,
               trustInversions: results.trustInversions,
+              exploitNarratives: results.exploitNarratives ?? [],
+              fixPatches: results.fixPatches ?? [],
               agentResults: results.agentResults,
             }, null, 2)
             : generateReport(results, target, durationMs, scanId, options.format);

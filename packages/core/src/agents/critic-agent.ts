@@ -37,7 +37,7 @@ export class CriticAgent {
   /**
    * Reviews a list of findings and returns only those that are NOT deemed false positives.
    */
-  public async reviewFindings(findings: Finding[], rootPath?: string): Promise<Finding[]> {
+  public async reviewFindings(findings: Finding[], rootPath?: string, signal?: AbortSignal): Promise<Finding[]> {
     const hasLLM = await this.llmClient.hasProvider();
     if (!hasLLM) {
       logger.warn('Critic Agent not available (no LLM provider configured). Skipping reflection phase.');
@@ -60,10 +60,11 @@ export class CriticAgent {
       let verdict: 'TRUE_POSITIVE' | 'FALSE_POSITIVE' | 'UNKNOWN' = 'UNKNOWN';
       let reasoning = '';
       try {
-        const evaluated = await this.evaluateFinding(finding, rootPath);
+        const evaluated = await this.evaluateFinding(finding, rootPath, signal);
         verdict = evaluated.verdict;
         reasoning = evaluated.reasoning;
       } catch (error) {
+        if (signal?.aborted) throw error;
         logger.warn(`Critic evaluation failed for ${finding.title}: ${error}`);
       }
 
@@ -90,7 +91,8 @@ export class CriticAgent {
 
   private async evaluateFinding(
     finding: Finding,
-    rootPath?: string
+    rootPath?: string,
+    signal?: AbortSignal,
   ): Promise<{ verdict: 'TRUE_POSITIVE' | 'FALSE_POSITIVE'; reasoning: string }> {
     const systemPrompt = `You are a strict AppSec auditor. Your job is to review automated security scanner findings and determine if they are TRUE POSITIVES or FALSE POSITIVES.
 Analyze the finding, its category, its description, the evidence, and the surrounding source code context carefully.
@@ -176,6 +178,7 @@ Is this a real vulnerability or a false positive?`;
         {
           system: systemPrompt,
           messages: [{ role: 'user', content: userPrompt }],
+          signal,
         },
         CriticVerdictSchema
       );

@@ -7,7 +7,7 @@ import { createAppClassifier, type AppClassifier } from '../classifier/app-class
 import { createFindingValidator, type FindingValidator } from '../validators/finding-validator.js';
 import { CriticAgent } from '../agents/critic-agent.js';
 import { buildCodeIndex, type CodeIndex } from '../indexer/code-index.js';
-import { createLLMClient, type LLMClient } from '../llm/client.js';
+import { createLLMClient, recordLlmFailure, type LLMClient } from '../llm/client.js';
 
 import { createTIEFDetector, type TIEFDetector } from '../analyzers/tief-detector.js';
 import { DiffScanner } from '../scanner/diff-scanner.js';
@@ -66,7 +66,7 @@ export class Orchestrator {
   /**
    * Run a full security scan
    */
-  async runScan(config: ScanConfig): Promise<{
+  async runScan(config: ScanConfig, signal?: AbortSignal): Promise<{
     findings: Finding[];
     agentResults: Record<AgentId, AgentResult>;
     chains: VulnerabilityChain[];
@@ -76,6 +76,14 @@ export class Orchestrator {
     exploitNarratives: ExploitNarrative[];
     fixPatches: FixPatch[];
   }> {
+    const throwIfAborted = () => {
+      if (signal?.aborted) {
+        const error = new Error('scan aborted');
+        error.name = 'AbortError';
+        throw error;
+      }
+    };
+
     this.logger.info(`Starting scan for target: ${config.target}`);
 
     const agentResults: Record<AgentId, AgentResult> = {} as Record<AgentId, AgentResult>;
@@ -96,6 +104,7 @@ export class Orchestrator {
     }
 
     // Phase 1: Recon (must run first)
+    throwIfAborted();
     this.logger.info('Phase 1: Running Recon Agent...');
     const reconAgent = agentRegistry.get('recon');
     if (reconAgent) {
@@ -113,6 +122,7 @@ export class Orchestrator {
     }
 
     // Phase 1.5: App Classification (between recon and agent swarm)
+    throwIfAborted();
     this.logger.info('Phase 1.5: Classifying application type...');
     const appContext = this.appClassifier.classify(reconData, config.type === 'directory' ? config.target : undefined);
     if (config.type === 'directory') {
@@ -121,6 +131,7 @@ export class Orchestrator {
     this.logger.info(`App classified as: ${appContext.appType} (${appContext.suppressions.length} suppressions)`);
 
     // Phase 1.7: Build Code Index for directory scans
+    throwIfAborted();
     let codeIndex: CodeIndex | undefined;
     if (config.type === 'directory') {
       this.logger.info('Phase 1.7: Building Code Index...');
@@ -132,6 +143,7 @@ export class Orchestrator {
     }
 
     // Phase 2: Run all other agents in parallel
+    throwIfAborted();
     this.logger.info('Phase 2: Running Agent Swarm...');
     const allParallelAgents = AGENT_EXECUTION_ORDER[1] ?? []; // All agents except recon
 
@@ -180,9 +192,10 @@ export class Orchestrator {
       } as any;
 
       try {
+        throwIfAborted();
         const [staticResult, llmFindings] = await Promise.all([
           agent.execute(agentContext),
-          this.runLLMAgent(agent, agentContext)
+          this.runLLMAgent(agent, agentContext, signal)
         ]);
 
         const mergedFindings = [...staticResult.findings, ...llmFindings];
@@ -224,17 +237,30 @@ export class Orchestrator {
     }
 
     // Phase 2.5: Finding Validation — deterministic filtering and adjust confidence
+    throwIfAborted();
     this.logger.info('Phase 2.5: Validating findings...');
     const { validated: validatedFindings, suppressed } = this.findingValidator.validate(allFindings, appContext, codeIndex);
     this.logger.info(`Validation: ${validatedFindings.length} passed, ${suppressed.length} suppressed`);
 
     // Phase 2.6: Critic Agent — LLM reflection to filter false positives
+    throwIfAborted();
     this.logger.info('Phase 2.6: Running Critic Agent...');
     const preCriticCount = validatedFindings.length;
     const criticStarted = Date.now();
-    this.logger.info(`[llm-phase:start] agent=critic findings=${preCriticCount}`);
-    const finalFindings = await this.criticAgent.reviewFindings(validatedFindings, config.type === 'directory' ? config.target : undefined);
-    this.logger.info(`[llm-phase:complete] agent=critic findings=${finalFindings.length} durationMs=${Date.now() - criticStarted}`);
+    const criticHasProvider = await this.llmClient.hasProvider();
+    if (criticHasProvider) {
+      this.logger.info(`[llm-phase:start] agent=critic findings=${preCriticCount}`);
+    } else {
+      this.logger.info('[llm-phase:skipped] agent=critic reason=no-provider');
+    }
+    const finalFindings = await this.criticAgent.reviewFindings(
+      validatedFindings,
+      config.type === 'directory' ? config.target : undefined,
+      signal,
+    );
+    if (criticHasProvider) {
+      this.logger.info(`[llm-phase:complete] agent=critic findings=${finalFindings.length} durationMs=${Date.now() - criticStarted}`);
+    }
     this.logger.info(`Critic Agent filtered ${preCriticCount - finalFindings.length} false positives`);
 
     // Update agent results to reflect only validated findings
@@ -252,11 +278,13 @@ export class Orchestrator {
     const findingsForAnalysis = finalFindings;
 
     // Phase 3: CVC Analysis - Find compound vulnerability chains
+    throwIfAborted();
     this.logger.info('Phase 3: Running CVC Analysis...');
 
     const chains = await this.cvcAnalyzer.findChains(findingsForAnalysis, reconData?.dataFlows);
 
     // Phase 4: VCVF Pattern Matching
+    throwIfAborted();
     this.logger.info('Phase 4: Running VCVF Analysis...');
     const vcvfFingerprints: VCVFFingerprint[] = reconData?.vcvfPatterns.map(p => ({
       id: `vcvf_${p.type}_${Date.now()}`,
@@ -268,10 +296,12 @@ export class Orchestrator {
     })) ?? [];
 
     // Phase 5: TIEF Detection
+    throwIfAborted();
     this.logger.info('Phase 5: Running TIEF Analysis...');
     const trustInversions = await this.tiefDetector.detect(findingsForAnalysis);
 
     // Phase 6: Exploit Generation (depends on all findings from Phase 2 + analysis from Phase 3-5)
+    throwIfAborted();
     if (config.phases?.exploit !== false) {
       this.logger.info('Phase 6: Running Exploit Agent...');
       const exploitAgent = agentRegistry.get('exploit');
@@ -302,6 +332,7 @@ export class Orchestrator {
     }
 
     // Phase 7: Fix Generation (depends on findings + target path)
+    throwIfAborted();
     if (config.phases?.fix !== false) {
       this.logger.info('Phase 7: Running Fix Agent...');
       const fixAgent = agentRegistry.get('fix');
@@ -440,9 +471,12 @@ export class Orchestrator {
     return null;
   }
 
-  private async runLLMAgent(agent: any, context: AgentContext): Promise<Finding[]> {
+  private async runLLMAgent(agent: any, context: AgentContext, signal?: AbortSignal): Promise<Finding[]> {
     const hasLLM = await this.llmClient.hasProvider();
-    if (!hasLLM) return [];
+    if (!hasLLM) {
+      this.logger.info(`[llm-phase:skipped] agent=${agent.id} reason=no-provider`);
+      return [];
+    }
 
     const phaseStarted = Date.now();
     this.logger.info(`[llm-phase:start] agent=${agent.id}`);
@@ -490,6 +524,7 @@ export class Orchestrator {
       const response = await this.llmClient.complete({
         system: systemPrompt,
         messages: [{ role: 'user', content: userPrompt }],
+        signal,
       });
 
       if (!response.content || response.content.trim() === '') {
@@ -529,7 +564,12 @@ export class Orchestrator {
           tags: f.tags || [agent.id, 'llm'],
         }));
       }
+      throw new Error('LLM returned an invalid findings response');
     } catch (error) {
+      if (signal?.aborted) throw error;
+      if (error instanceof Error && error.message === 'LLM returned an invalid findings response') {
+        recordLlmFailure(error);
+      }
       this.logger.warn(`[llm-phase:failed] agent=${agent.id} durationMs=${Date.now() - phaseStarted} error=${error instanceof Error ? error.message : 'unknown'}`);
       this.logger.warn(`AI agent ${agent.id} reasoning failed: ${error}`);
     }

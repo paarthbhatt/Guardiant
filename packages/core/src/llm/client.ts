@@ -57,6 +57,38 @@ export const llmRuntimeStatus: LlmRuntimeStatus = {
   failures: 0,
 };
 
+export function recordLlmFailure(error: unknown): void {
+  llmRuntimeStatus.failures += 1;
+  llmRuntimeStatus.lastError = error instanceof Error ? error.message : String(error);
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    const error = new Error('LLM request aborted');
+    error.name = 'AbortError';
+    throw error;
+  }
+}
+
+function waitWithAbort(ms: number, signal?: AbortSignal): Promise<void> {
+  if (!signal) return new Promise(resolve => setTimeout(resolve, ms));
+  throwIfAborted(signal);
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      signal.removeEventListener('abort', onAbort);
+      const error = new Error('LLM request aborted');
+      error.name = 'AbortError';
+      reject(error);
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
 /**
  * Multi-provider LLM client with automatic fallback
  */
@@ -146,7 +178,7 @@ export class LLMClient {
             role: m.role as 'user' | 'assistant',
             content: m.content,
           })),
-        });
+        }, request.signal ? { signal: request.signal } : undefined);
 
         const content = response.content
           .filter(block => block.type === 'text')
@@ -205,7 +237,7 @@ export class LLMClient {
           model,
           max_tokens: maxTokens,
           messages,
-        });
+        }, request.signal ? { signal: request.signal } : undefined);
 
         const content = response.choices[0]?.message.content ?? '';
 
@@ -259,7 +291,7 @@ export class LLMClient {
           model,
           max_tokens: maxTokens,
           messages,
-        });
+        }, request.signal ? { signal: request.signal } : undefined);
 
         const content = response.choices[0]?.message.content ?? '';
 
@@ -313,7 +345,7 @@ export class LLMClient {
           model,
           max_tokens: maxTokens,
           messages,
-        });
+        }, request.signal ? { signal: request.signal } : undefined);
 
         const content = response.choices[0]?.message.content ?? '';
 
@@ -371,7 +403,7 @@ export class LLMClient {
           model,
           max_tokens: maxTokens,
           messages,
-        });
+        }, request.signal ? { signal: request.signal } : undefined);
 
         const content = response.choices[0]?.message.content ?? '';
 
@@ -425,7 +457,7 @@ export class LLMClient {
           model,
           max_tokens: maxTokens,
           messages,
-        });
+        }, request.signal ? { signal: request.signal } : undefined);
 
         const content = response.choices[0]?.message.content ?? '';
 
@@ -451,6 +483,7 @@ export class LLMClient {
     const errors: Error[] = [];
 
     for (const provider of this.providers) {
+      throwIfAborted(request.signal);
       if (this.disabledProviders.has(provider.name)) {
         continue;
       }
@@ -474,9 +507,10 @@ export class LLMClient {
         const elapsed = now - lastTime;
         if (elapsed < interval) {
           const waitTime = interval - elapsed;
-          await new Promise(resolve => setTimeout(resolve, waitTime));
+          await waitWithAbort(waitTime, request.signal);
         }
 
+        throwIfAborted(request.signal);
         const response = await provider.complete(request);
         if (!response.content || response.content.trim() === '') {
           throw new Error('LLM returned an empty response');
@@ -506,8 +540,7 @@ export class LLMClient {
       }
     }
 
-    llmRuntimeStatus.failures += 1;
-    llmRuntimeStatus.lastError = errors.map(e => e.message).join('; ');
+    recordLlmFailure(new Error(errors.map(e => e.message).join('; ')));
     throw new Error(
       `All LLM providers failed: ${errors.map(e => e.message).join('; ')}`
     );
@@ -551,6 +584,7 @@ Do not include any text outside the JSON object.`;
         response,
       };
     } catch (parseError) {
+      recordLlmFailure(parseError);
       throw new Error(`Failed to parse structured output: ${parseError instanceof Error ? parseError.message : 'Unknown error'}`);
     }
   }

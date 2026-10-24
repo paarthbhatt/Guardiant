@@ -77,6 +77,8 @@ export interface LLMRequest {
   responseFormat?: z.ZodType<unknown>;
   /** Stop sequences */
   stopSequences?: string[];
+  /** Cooperative cancellation for in-flight provider calls */
+  signal?: AbortSignal;
 }
 
 /**
